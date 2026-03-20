@@ -31,6 +31,8 @@ interface EventData {
   includeStandardSeats?: boolean;
   includeResaleSeats?: boolean;
   stubhubEnabled?: boolean;
+  Availability_Percentage?: number | null;
+  Venue_Capacity?: number;
 }
 
 interface ResolvedSearchParams {
@@ -237,6 +239,7 @@ export default async function EventsTableServerSide({ searchParams }: PageProps)
                 <col className="w-[130px]" />
                 <col className="w-[72px]" />
                 <col className="w-[72px]" />
+                <col className="w-[64px]" />
                 <col className="w-[72px]" />
                 <col className="w-[130px]" />
                 <col className="w-[160px]" />
@@ -263,6 +266,11 @@ export default async function EventsTableServerSide({ searchParams }: PageProps)
                   </th>
                   <th className="px-3 py-2.5 text-right text-xs font-bold text-gray-600 uppercase tracking-wider">
                     Rows
+                  </th>
+                  <th className="px-3 py-2.5 text-center text-xs font-bold text-gray-600 uppercase tracking-wider">
+                    <SortableHeader sortKey="availability" currentSortBy={sortBy} currentSortOrder={sortOrder} sp={sp} className="justify-center">
+                      Avail
+                    </SortableHeader>
                   </th>
                   <th className="px-3 py-2.5 text-right text-xs font-bold text-gray-600 uppercase tracking-wider">
                     <SortableHeader sortKey="markup" currentSortBy={sortBy} currentSortOrder={sortOrder} sp={sp} className="justify-end">
@@ -360,7 +368,31 @@ export default async function EventsTableServerSide({ searchParams }: PageProps)
                           </span>
                         </div>
                       </td>
-                      
+
+                      {/* Availability % */}
+                      <td className="px-3 py-2 whitespace-nowrap text-center">
+                        {event.Availability_Percentage != null ? (() => {
+                          const pct = event.Availability_Percentage!;
+                          const color = pct > 50 ? 'bg-green-100 text-green-700 border-green-200'
+                            : pct > 30 ? 'bg-amber-100 text-amber-700 border-amber-200'
+                            : pct > 10 ? 'bg-orange-100 text-orange-700 border-orange-200'
+                            : 'bg-red-100 text-red-700 border-red-200';
+                          const scarcityBoost = pct < 50 ? Math.ceil((50 - pct) / 10) * 10 : 0;
+                          return (
+                            <div className="flex flex-col items-center gap-0.5">
+                              <span className={`inline-flex items-center text-[11px] font-bold px-2 py-0.5 rounded-full border tabular-nums ${color}`}>
+                                {pct}%
+                              </span>
+                              {scarcityBoost > 0 && (
+                                <span className="text-[9px] font-semibold text-rose-500">+{scarcityBoost}%</span>
+                              )}
+                            </div>
+                          );
+                        })() : (
+                          <span className="text-[10px] text-gray-400">—</span>
+                        )}
+                      </td>
+
                       <td className="px-3 py-2 whitespace-nowrap text-right">
                         <div className="inline-flex flex-col items-end gap-1.5">
                           {/* Base markup */}
@@ -552,9 +584,23 @@ export default async function EventsTableServerSide({ searchParams }: PageProps)
 
                     {/* Footer */}
                     <div className="flex items-center justify-between text-xs text-gray-500 pt-2 border-t border-gray-200">
-                      <div className="flex items-center gap-1">
-                        <Clock size={12} />
-                        <span>ID: {event.mapping_id || '—'}</span>
+                      <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-1">
+                          <Clock size={12} />
+                          <span>ID: {event.mapping_id || '—'}</span>
+                        </div>
+                        {event.Availability_Percentage != null && (() => {
+                          const pct = event.Availability_Percentage!;
+                          const color = pct > 50 ? 'bg-green-100 text-green-700 border-green-200'
+                            : pct > 30 ? 'bg-amber-100 text-amber-700 border-amber-200'
+                            : pct > 10 ? 'bg-orange-100 text-orange-700 border-orange-200'
+                            : 'bg-red-100 text-red-700 border-red-200';
+                          return (
+                            <span className={`inline-flex items-center text-[10px] font-bold px-1.5 py-0.5 rounded-full border tabular-nums ${color}`}>
+                              {pct}% avail
+                            </span>
+                          );
+                        })()}
                       </div>
                       <div className={`font-medium ${
                         fresh ? 'text-blue-700' : 'text-yellow-700'

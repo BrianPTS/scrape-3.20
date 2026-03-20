@@ -26,6 +26,8 @@ interface EventType {
   URL: string;
   Zone?: string;
   Available_Seats?: number;
+  Venue_Capacity?: number;
+  Availability_Percentage?: number | null;
   Skip_Scraping?: boolean;
   inHandDate?: string;
   priceIncreasePercentage?: number;
@@ -157,7 +159,7 @@ export default async function EventDetailsPage({ params }: EventDetailsProps) {
         </div>
 
         {/* ── Inventory & Markup strip ── */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 bg-slate-50/80 border-t border-slate-100 divide-x divide-slate-100">
+        <div className="grid grid-cols-2 sm:grid-cols-5 bg-slate-50/80 border-t border-slate-100 divide-x divide-slate-100">
           {/* Standard */}
           <div className={`px-4 py-3 relative group transition-opacity duration-200 ${includeStandard ? '' : 'opacity-35'}`}>
             <div className="flex items-center gap-1.5 mb-1">
@@ -209,6 +211,32 @@ export default async function EventDetailsPage({ params }: EventDetailsProps) {
                 Excluded from CSV
                 <div className="absolute top-full left-1/2 -translate-x-1/2 -mt-px border-4 border-transparent border-t-slate-800" />
               </div>
+            )}
+          </div>
+
+          {/* Availability */}
+          <div className="px-4 py-3">
+            <div className="flex items-center gap-1.5 mb-1">
+              <Activity size={11} className="text-slate-400" />
+              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Availability</p>
+            </div>
+            {event.Availability_Percentage != null ? (() => {
+              const avPct = event.Availability_Percentage!;
+              const avColor = avPct > 50 ? 'text-green-600' : avPct > 30 ? 'text-amber-600' : avPct > 10 ? 'text-orange-600' : 'text-red-600';
+              const scarcityBoost = avPct < 50 ? Math.ceil((50 - avPct) / 10) * 10 : 0;
+              return (
+                <>
+                  <p className={`text-xl font-bold tabular-nums ${avColor}`}>{avPct}%</p>
+                  <p className="text-[10px] text-slate-500 mt-0.5">
+                    {(event.Available_Seats ?? 0).toLocaleString()} / {(event.Venue_Capacity ?? 0).toLocaleString()} seats
+                  </p>
+                  {scarcityBoost > 0 && (
+                    <p className="text-[10px] font-bold text-rose-500 mt-0.5">+{scarcityBoost}% scarcity boost</p>
+                  )}
+                </>
+              );
+            })() : (
+              <p className="text-xl font-bold text-slate-300">—</p>
             )}
           </div>
 
