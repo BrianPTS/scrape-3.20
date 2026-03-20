@@ -375,12 +375,13 @@ export async function generateInventoryCsv(eventUpdateFilterMinutes: number = 0)
       const eventDetailsMap = new Map<string, {
         url: string; stdAdj: number; resaleAdj: number; defaultPct: number;
         includeStandard: boolean; includeResale: boolean; useStubHubPricing: boolean;
+        availabilityPct: number | null;
       }>();
       const eventDocs = await Event.find(
         { mapping_id: { $in: eventMappingIds } },
         { mapping_id: 1, URL: 1, standardMarkupAdjustment: 1, resaleMarkupAdjustment: 1,
           priceIncreasePercentage: 1, includeStandardSeats: 1, includeResaleSeats: 1,
-          useStubHubPricing: 1 }
+          useStubHubPricing: 1, Availability_Percentage: 1 }
       ).lean();
       for (const ev of eventDocs) {
         eventDetailsMap.set(ev.mapping_id, {
@@ -391,6 +392,7 @@ export async function generateInventoryCsv(eventUpdateFilterMinutes: number = 0)
           includeStandard: ev.includeStandardSeats !== false,
           includeResale: ev.includeResaleSeats !== false,
           useStubHubPricing: ev.useStubHubPricing === true,
+          availabilityPct: ev.Availability_Percentage ?? null,
         });
       }
       console.log(`[CSV] Pre-fetched details for ${eventDetailsMap.size} events`);
@@ -487,6 +489,7 @@ export async function generateInventoryCsv(eventUpdateFilterMinutes: number = 0)
             doc.event_resale_adj = evData?.resaleAdj ?? 0;
             doc.event_default_pct = evData?.defaultPct ?? 0;
             doc.event_use_stubhub_pricing = evData?.useStubHubPricing ?? false;
+            doc.event_availability_pct = evData?.availabilityPct ?? null;
             enrichedDocs.push(doc);
           }
           if (enrichedDocs.length > 0) {
@@ -621,6 +624,7 @@ interface ConsecutiveGroupDocument {
   event_resale_adj?: number;
   event_default_pct?: number;
   event_use_stubhub_pricing?: boolean;
+  event_availability_pct?: number | null;
   seats?: Array<{ number: string | number }>;
 }
 
@@ -674,6 +678,31 @@ function calculateSplitConfiguration(quantity: number, splitType?: string): {
   }
 }
 
+// ── Risk Markup Constants ──
+const FIRST_ROW_BOOST_PCT = 10;          // +10% for front-row listings
+const NO_UPGRADE_BOOST_PCT = 10;         // +10% for listings with no cheaper upgrade path
+const SCARCITY_THRESHOLD_PCT = 50;       // Start scarcity boost below this availability %
+const SCARCITY_STEP_SIZE = 10;           // Each 10% below threshold = +10% boost
+
+// Row ranking for front-row detection
+function rankRow(row: string): number {
+  if (!row) return Infinity;
+  const upper = row.toUpperCase().trim();
+  // Exclude GA and SRO from front-row consideration
+  if (upper === 'GA' || upper === 'SRO' || /^GA\d+$/i.test(upper)) return Infinity;
+  // Numeric rows (1, 2, 3...)
+  const num = parseInt(upper, 10);
+  if (!isNaN(num)) return num;
+  // Alpha rows: A=1, B=2, ..., Z=26, AA=27, BB=28, etc.
+  if (/^[A-Z]+$/.test(upper)) {
+    if (upper.length === 1) return upper.charCodeAt(0) - 64; // A=1, B=2
+    // AA, BB, CC = 27, 28, 29; AB, AC = treat by length then value
+    if (upper.length === 2 && upper[0] === upper[1]) return 26 + (upper.charCodeAt(0) - 64);
+    return 100 + upper.split('').reduce((acc, c) => acc * 26 + (c.charCodeAt(0) - 64), 0);
+  }
+  return Infinity;
+}
+
 // Helper function to process batches
 async function processBatch(batch: ConsecutiveGroupDocument[]): Promise<CsvRow[]> {
   // Resolve timezones for all unique venues in this batch (bulk, with DB cache + geocoding fallback)
@@ -684,6 +713,28 @@ async function processBatch(batch: ConsecutiveGroupDocument[]): Promise<CsvRow[]
     for (const [venue, tz] of resolved) {
       _venueTzCache.set(venue, tz);
     }
+  }
+
+  // ── Pre-compute front-row and upgrade-path data per section ──
+  // Group docs by event+section to find the front row in each section
+  const sectionFrontRow = new Map<string, number>(); // "eventId|section" -> lowest row rank
+  const sectionListings = new Map<string, Array<{ rowRank: number; cost: number; qty: number }>>();
+
+  for (const doc of batch) {
+    const sec = doc.inventory?.section || '';
+    const eventId = doc.mapping_id || doc.eventId || '';
+    const key = `${eventId}|${sec}`;
+    const rowStr = doc.inventory?.row || '';
+    const rowRk = rankRow(rowStr);
+    const cost = doc.inventory?.cost || doc.inventory?.listPrice || 0;
+    const qty = doc.inventory?.quantity || 0;
+
+    if (rowRk < (sectionFrontRow.get(key) ?? Infinity)) {
+      sectionFrontRow.set(key, rowRk);
+    }
+
+    if (!sectionListings.has(key)) sectionListings.set(key, []);
+    sectionListings.get(key)!.push({ rowRank: rowRk, cost, qty });
   }
 
   return batch.map(doc => {
@@ -707,7 +758,43 @@ async function processBatch(batch: ConsecutiveGroupDocument[]): Promise<CsvRow[]
       ? rawListPrice * (1 + (defaultPct + adj) / 100) / (1 + defaultPct / 100)
       : rawListPrice;
 
-    const adjustedListPrice = useStubHub ? inventory!.stubhubSuggestedPrice! : markupPrice;
+    let adjustedListPrice = useStubHub ? inventory!.stubhubSuggestedPrice! : markupPrice;
+
+    // ── Risk Markup Boosts (only when NOT using StubHub pricing) ──
+    if (!useStubHub) {
+      const sec = inventory?.section || '';
+      const eventId = doc.mapping_id || doc.eventId || '';
+      const sectionKey = `${eventId}|${sec}`;
+      const currentRowRank = rankRow(row);
+      const frontRowRank = sectionFrontRow.get(sectionKey) ?? Infinity;
+      const currentQty = inventory?.quantity || 0;
+      const currentCost = inventory?.cost || inventory?.listPrice || 0;
+
+      // 1. Front-row boost: +10% if this is the lowest row in the section
+      const isFrontRow = currentRowRank === frontRowRank && currentRowRank < Infinity;
+      if (isFrontRow) {
+        adjustedListPrice *= (1 + FIRST_ROW_BOOST_PCT / 100);
+      }
+
+      // 2. No-upgrade-path boost: +10% if no cheaper closer row with same qty (front-row exempt)
+      if (!isFrontRow && currentRowRank < Infinity) {
+        const listings = sectionListings.get(sectionKey) || [];
+        const hasUpgrade = listings.some(
+          (other) => other.rowRank < currentRowRank && other.qty === currentQty && other.cost <= currentCost * 1.10
+        );
+        if (!hasUpgrade) {
+          adjustedListPrice *= (1 + NO_UPGRADE_BOOST_PCT / 100);
+        }
+      }
+
+      // 3. Scarcity boost: tiered increase when event availability < threshold
+      const availPct = doc.event_availability_pct;
+      if (availPct != null && availPct < SCARCITY_THRESHOLD_PCT) {
+        const tiersBelowThreshold = Math.ceil((SCARCITY_THRESHOLD_PCT - availPct) / SCARCITY_STEP_SIZE);
+        const scarcityBoostPct = tiersBelowThreshold * SCARCITY_STEP_SIZE;
+        adjustedListPrice *= (1 + scarcityBoostPct / 100);
+      }
+    }
 
     // Pre-compute expensive operations with null safety
     // GA/Lawn seats have synthetic seat numbers — clear them so Sync doesn't see fake numbers
