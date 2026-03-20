@@ -4,6 +4,7 @@ import dbConnect from '@/lib/dbConnect';
 import { Order } from '@/models/orderModel';
 import { Event } from '@/models/eventModel';
 import { Purchase } from '@/models/purchaseModel';
+import { ConsecutiveGroup } from '@/models/seatModel';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -115,6 +116,76 @@ async function findEventUrl(o: Record<string, any>): Promise<{ eventId: any; url
   }
 
   return null;
+}
+
+/**
+ * Snapshot event-level and section-level inventory at order time.
+ * Uses the Event doc for event-level stats and aggregates ConsecutiveGroup
+ * for section-level stats.
+ */
+async function snapshotInventory(
+  portalEventId: any,
+  orderSection: string
+): Promise<Record<string, any> | null> {
+  try {
+    if (!portalEventId) return null;
+
+    // Get the event doc for mapping_id and event-level Available_Seats
+    const event = await Event.findById(portalEventId, {
+      mapping_id: 1, Available_Seats: 1, Venue_Capacity: 1, Availability_Percentage: 1,
+    }).lean() as any;
+    if (!event?.mapping_id) return null;
+
+    // Aggregate section-level stats from ConsecutiveGroup
+    const sectionStats = await ConsecutiveGroup.aggregate([
+      { $match: { mapping_id: event.mapping_id } },
+      {
+        $group: {
+          _id: '$section',
+          totalSeats: { $sum: '$seatCount' },
+        },
+      },
+    ]);
+
+    // Event-level: sum all sections for total available
+    const totalAvailable = sectionStats.reduce((sum: number, s: any) => sum + s.totalSeats, 0);
+
+    // Section-level: find the matching section (case-insensitive)
+    const normalizedOrderSection = (orderSection || '').toLowerCase().replace(/\s+/g, ' ').trim();
+    const matchedSection = sectionStats.find((s: any) =>
+      (s._id || '').toLowerCase().replace(/\s+/g, ' ').trim() === normalizedOrderSection
+    );
+    const sectionAvailable = matchedSection ? matchedSection.totalSeats : null;
+
+    // We don't have per-section venue capacity from the scraper, so we approximate:
+    // section % = sectionAvailable / totalAvailable * 100 (share of remaining inventory)
+    // Event % = use Available_Seats or totalAvailable
+    const eventAvailable = event.Available_Seats || totalAvailable;
+
+    // If Venue_Capacity exists (from risk features), use it for event %
+    const eventVenueCapacity = event.Venue_Capacity || null;
+    const eventAvailabilityPct = eventVenueCapacity
+      ? Math.round((eventAvailable / eventVenueCapacity) * 100)
+      : (event.Availability_Percentage || null);
+
+    // Section availability: what % of total remaining inventory is in this section
+    const sectionPctOfInventory = (sectionAvailable != null && totalAvailable > 0)
+      ? Math.round((sectionAvailable / totalAvailable) * 100)
+      : null;
+
+    return {
+      eventAvailabilityPct,
+      eventAvailableSeats: eventAvailable,
+      eventVenueCapacity,
+      sectionAvailabilityPct: sectionPctOfInventory,
+      sectionAvailableSeats: sectionAvailable,
+      sectionTotalCapacity: totalAvailable, // total across all sections
+      snapshotAt: new Date(),
+    };
+  } catch (err) {
+    console.error('[inventory-snapshot] Error:', (err as Error).message);
+    return null;
+  }
 }
 
 function normalizePurchaseName(s: string): string {
@@ -497,6 +568,39 @@ export async function GET(request: NextRequest) {
       }
     }
     console.log(`[sync] cross-ref (${unmatchedOrders.length} checked): ${Date.now() - t0}ms`);
+
+    // Snapshot inventory levels for new orders that have a portalEventId
+    if (newOrderIds.length > 0) {
+      try {
+        const ordersToSnapshot = await Order.find(
+          { order_id: { $in: newOrderIds }, portalEventId: { $ne: null }, 'inventorySnapshot.snapshotAt': null },
+          { portalEventId: 1, section: 1, order_id: 1 }
+        ).lean();
+
+        if (ordersToSnapshot.length > 0) {
+          const snapshotOps: any[] = [];
+          await Promise.all(
+            ordersToSnapshot.map(async (o: any) => {
+              const snapshot = await snapshotInventory(o.portalEventId, o.section);
+              if (snapshot) {
+                snapshotOps.push({
+                  updateOne: {
+                    filter: { _id: o._id },
+                    update: { $set: { inventorySnapshot: snapshot } },
+                  },
+                });
+              }
+            })
+          );
+          if (snapshotOps.length > 0) {
+            await Order.bulkWrite(snapshotOps);
+          }
+          console.log(`[sync] inventory snapshots: ${snapshotOps.length}/${ordersToSnapshot.length} orders`);
+        }
+      } catch (err) {
+        console.error('[sync] inventory snapshot error:', (err as Error).message);
+      }
+    }
 
     // Fetch seat data from /transfers for NEW orders + backfill existing orders
     // Uses batched approach (3 concurrent) to avoid flooding external API

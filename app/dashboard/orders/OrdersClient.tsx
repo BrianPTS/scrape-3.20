@@ -10,7 +10,7 @@ import {
   Truck, Send, CheckCircle, RotateCw,
   FileText, Clock, XCircle, Package, Ticket,
   Flag, FlagOff, MessageSquareWarning, Copy, ClipboardCheck,
-  User, Phone, Hash, Calendar, DollarSign, Upload, ImageIcon, Users,
+  User, Phone, Hash, Calendar, DollarSign, Upload, ImageIcon, Users, BarChart3, Download,
 } from 'lucide-react';
 import { flagOrderIssue, unflagOrderIssue } from '@/actions/orderActions';
 import { useOrderAlert } from './useOrderAlert';
@@ -34,6 +34,15 @@ interface OrderData {
   transfer_to_email?: string; public_notes?: string; reason?: string;
   in_hand_date?: string | null; inventory_tags?: string;
   last_seen_internal_notes?: string;
+  inventorySnapshot?: {
+    eventAvailabilityPct: number | null;
+    eventAvailableSeats: number | null;
+    eventVenueCapacity: number | null;
+    sectionAvailabilityPct: number | null;
+    sectionAvailableSeats: number | null;
+    sectionTotalCapacity: number | null;
+    snapshotAt: string | null;
+  };
 }
 
 interface OrderDetail {
@@ -850,6 +859,19 @@ export default function OrdersClient({
                   : `Recheck All`}
               </button>
             )}
+            <button
+              onClick={() => {
+                const a = document.createElement('a');
+                a.href = '/api/orders/inventory-report';
+                a.download = '';
+                a.click();
+              }}
+              className="px-3 py-1.5 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 transition-[background-color] flex items-center gap-1.5 text-sm"
+              title="Download inventory report (CSV)"
+            >
+              <Download className="h-3.5 w-3.5" />
+              <span className="hidden sm:inline">Report</span>
+            </button>
             <button onClick={() => syncOnly()} disabled={syncing}
               className="px-3 py-1.5 rounded-lg bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-60 transition-[background-color,opacity] flex items-center gap-1.5 text-sm">
               <RefreshCw className={`h-3.5 w-3.5 ${syncing ? 'animate-spin' : ''}`} />
@@ -1117,6 +1139,7 @@ export default function OrdersClient({
                 <tr>
                   <th className="px-4 py-2.5 text-left text-[11px] font-semibold text-gray-500 uppercase tracking-wider">Event</th>
                   <th className="px-4 py-2.5 text-left text-[11px] font-semibold text-gray-500 uppercase tracking-wider w-[220px]">Ticket</th>
+                  <th className="px-4 py-2.5 text-center text-[11px] font-semibold text-gray-500 uppercase tracking-wider w-[100px]">Inventory</th>
                   <th className="px-4 py-2.5 text-center text-[11px] font-semibold text-gray-500 uppercase tracking-wider w-[80px]">Delivery</th>
                   <th className="px-4 py-2.5 text-left text-[11px] font-semibold text-gray-500 uppercase tracking-wider w-[120px]">Price</th>
                   <th className="px-4 py-2.5 text-left text-[11px] font-semibold text-gray-500 uppercase tracking-wider w-[140px]">Order Date</th>
@@ -1251,6 +1274,36 @@ export default function OrdersClient({
                           </div>
                         </td>
 
+                        {/* INVENTORY — event % + section % */}
+                        <td className="px-2 py-3">
+                          {o.inventorySnapshot?.snapshotAt ? (
+                            <div className="flex flex-col items-center gap-1">
+                              {o.inventorySnapshot.eventAvailabilityPct != null && (
+                                <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold ${
+                                  o.inventorySnapshot.eventAvailabilityPct > 50 ? 'bg-emerald-100 text-emerald-700' :
+                                  o.inventorySnapshot.eventAvailabilityPct > 30 ? 'bg-amber-100 text-amber-700' :
+                                  o.inventorySnapshot.eventAvailabilityPct > 10 ? 'bg-orange-100 text-orange-700' :
+                                  'bg-red-100 text-red-700'
+                                }`} title={`Event: ${o.inventorySnapshot.eventAvailableSeats ?? '?'} seats available`}>
+                                  <BarChart3 className="w-3 h-3" />
+                                  {o.inventorySnapshot.eventAvailabilityPct}%
+                                </span>
+                              )}
+                              {o.inventorySnapshot.sectionAvailabilityPct != null && (
+                                <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-semibold ${
+                                  o.inventorySnapshot.sectionAvailabilityPct > 15 ? 'bg-blue-50 text-blue-600' :
+                                  o.inventorySnapshot.sectionAvailabilityPct > 5 ? 'bg-purple-50 text-purple-600' :
+                                  'bg-gray-100 text-gray-500'
+                                }`} title={`Section: ${o.inventorySnapshot.sectionAvailableSeats ?? '?'} of ${o.inventorySnapshot.sectionTotalCapacity ?? '?'} total seats`}>
+                                  Sec {o.inventorySnapshot.sectionAvailabilityPct}%
+                                </span>
+                              )}
+                            </div>
+                          ) : (
+                            <span className="text-[10px] text-gray-300">—</span>
+                          )}
+                        </td>
+
                         {/* DELIVERY — icon + label */}
                         <td className="px-2 py-3">
                           <DeliveryBadge delivery={o.delivery} />
@@ -1271,7 +1324,7 @@ export default function OrdersClient({
 
                       {/* ── Unified action bar ── */}
                       <tr>
-                        <td colSpan={5} className={`px-4 py-2.5 border-l-[3px] border-t ${{
+                        <td colSpan={6} className={`px-4 py-2.5 border-l-[3px] border-t ${{
                           invoiced: 'border-l-blue-500 bg-blue-50/20 border-t-blue-200/50',
                           pending: 'border-l-blue-400 bg-blue-50/20 border-t-blue-200/50',
                           problem: 'border-l-orange-400 bg-orange-50/20 border-t-orange-200/50',
@@ -1586,6 +1639,56 @@ export default function OrdersClient({
                       </div>
                     </div>
                   </div>
+
+                  {/* Inventory Snapshot Card */}
+                  {selectedOrder.inventorySnapshot?.snapshotAt && (
+                    <div className="bg-indigo-50/50 rounded-xl border border-indigo-200/60 p-4">
+                      <h4 className="text-xs font-bold text-indigo-700 uppercase tracking-wider mb-3 flex items-center gap-1.5">
+                        <BarChart3 className="w-3.5 h-3.5" /> Inventory at Order Time
+                      </h4>
+                      <div className="grid grid-cols-2 gap-3">
+                        {selectedOrder.inventorySnapshot.eventAvailabilityPct != null && (
+                          <div className="bg-white rounded-lg p-3 border border-gray-100">
+                            <div className="text-[10px] text-gray-400 uppercase tracking-wide">Event Availability</div>
+                            <div className={`text-lg font-bold mt-0.5 ${
+                              selectedOrder.inventorySnapshot.eventAvailabilityPct > 50 ? 'text-emerald-600' :
+                              selectedOrder.inventorySnapshot.eventAvailabilityPct > 30 ? 'text-amber-600' :
+                              selectedOrder.inventorySnapshot.eventAvailabilityPct > 10 ? 'text-orange-600' :
+                              'text-red-600'
+                            }`}>
+                              {selectedOrder.inventorySnapshot.eventAvailabilityPct}%
+                            </div>
+                            {selectedOrder.inventorySnapshot.eventAvailableSeats != null && (
+                              <div className="text-[10px] text-gray-400 mt-0.5">
+                                {selectedOrder.inventorySnapshot.eventAvailableSeats.toLocaleString()} seats
+                                {selectedOrder.inventorySnapshot.eventVenueCapacity ? ` / ${selectedOrder.inventorySnapshot.eventVenueCapacity.toLocaleString()}` : ''}
+                              </div>
+                            )}
+                          </div>
+                        )}
+                        {selectedOrder.inventorySnapshot.sectionAvailabilityPct != null && (
+                          <div className="bg-white rounded-lg p-3 border border-gray-100">
+                            <div className="text-[10px] text-gray-400 uppercase tracking-wide">Section Share</div>
+                            <div className={`text-lg font-bold mt-0.5 ${
+                              selectedOrder.inventorySnapshot.sectionAvailabilityPct > 15 ? 'text-blue-600' :
+                              selectedOrder.inventorySnapshot.sectionAvailabilityPct > 5 ? 'text-purple-600' :
+                              'text-gray-500'
+                            }`}>
+                              {selectedOrder.inventorySnapshot.sectionAvailabilityPct}%
+                            </div>
+                            {selectedOrder.inventorySnapshot.sectionAvailableSeats != null && (
+                              <div className="text-[10px] text-gray-400 mt-0.5">
+                                {selectedOrder.inventorySnapshot.sectionAvailableSeats} of {selectedOrder.inventorySnapshot.sectionTotalCapacity ?? '?'} total
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                      <div className="text-[10px] text-gray-400 mt-2">
+                        Snapshot taken {new Date(selectedOrder.inventorySnapshot.snapshotAt!).toLocaleString()}
+                      </div>
+                    </div>
+                  )}
 
                   {/* POS Info Card */}
                   <div className="bg-gray-50 rounded-xl border border-gray-200 p-4">

@@ -57,6 +57,17 @@ const orderSchema = new mongoose.Schema(
     },
     ticketmasterUrl: String,
 
+    // Inventory snapshot at order time
+    inventorySnapshot: {
+      eventAvailabilityPct: { type: Number, default: null },   // Event-level availability %
+      eventAvailableSeats: { type: Number, default: null },    // Available seats at event level
+      eventVenueCapacity: { type: Number, default: null },     // Total venue capacity
+      sectionAvailabilityPct: { type: Number, default: null }, // Section-level availability %
+      sectionAvailableSeats: { type: Number, default: null },  // Available seats in the order's section
+      sectionTotalCapacity: { type: Number, default: null },   // Total capacity for the order's section
+      snapshotAt: { type: Date, default: null },               // When the snapshot was taken
+    },
+
     // Issue flagging
     hasIssue: {
       type: Boolean,
