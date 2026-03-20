@@ -94,6 +94,25 @@ const eventSchema = new mongoose.Schema(
       type: Date,
       default: null,
     },
+    // Dynamic pricing engine
+    dynamicPricingEnabled: {
+      type: Boolean,
+      default: true,
+    },
+    calculatedMarkup: {
+      type: Number,
+      default: 30,
+    },
+    lastMarkupCalcAt: {
+      type: Date,
+      default: null,
+    },
+    markupFactors: {
+      availability: { type: Number, default: 0 },
+      orderVelocity: { type: Number, default: 0 },
+      timeToEvent: { type: Number, default: 0 },
+      base: { type: Number, default: 30 },
+    },
     metadata: {
       lastUpdate: String,
       iterationNumber: Number,

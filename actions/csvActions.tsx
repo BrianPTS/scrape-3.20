@@ -376,23 +376,30 @@ export async function generateInventoryCsv(eventUpdateFilterMinutes: number = 0)
         url: string; stdAdj: number; resaleAdj: number; defaultPct: number;
         includeStandard: boolean; includeResale: boolean; useStubHubPricing: boolean;
         availabilityPct: number | null;
+        dynamicPricingEnabled: boolean; calculatedMarkup: number;
       }>();
       const eventDocs = await Event.find(
         { mapping_id: { $in: eventMappingIds } },
         { mapping_id: 1, URL: 1, standardMarkupAdjustment: 1, resaleMarkupAdjustment: 1,
           priceIncreasePercentage: 1, includeStandardSeats: 1, includeResaleSeats: 1,
-          useStubHubPricing: 1, Availability_Percentage: 1 }
+          useStubHubPricing: 1, Availability_Percentage: 1,
+          dynamicPricingEnabled: 1, calculatedMarkup: 1 }
       ).lean();
       for (const ev of eventDocs) {
+        const isDynamic = ev.dynamicPricingEnabled === true;
         eventDetailsMap.set(ev.mapping_id, {
           url: ev.URL || '',
           stdAdj: ev.standardMarkupAdjustment ?? 0,
           resaleAdj: ev.resaleMarkupAdjustment ?? 0,
-          defaultPct: ev.priceIncreasePercentage ?? 0,
+          defaultPct: isDynamic
+            ? (ev.calculatedMarkup ?? ev.priceIncreasePercentage ?? 0)
+            : (ev.priceIncreasePercentage ?? 0),
           includeStandard: ev.includeStandardSeats !== false,
           includeResale: ev.includeResaleSeats !== false,
           useStubHubPricing: ev.useStubHubPricing === true,
           availabilityPct: ev.Availability_Percentage ?? null,
+          dynamicPricingEnabled: isDynamic,
+          calculatedMarkup: ev.calculatedMarkup ?? 30,
         });
       }
       console.log(`[CSV] Pre-fetched details for ${eventDetailsMap.size} events`);
@@ -979,14 +986,17 @@ export async function* generateInventoryCsvStream(
       { mapping_id: { $in: eventMappingIds } },
       { mapping_id: 1, URL: 1, standardMarkupAdjustment: 1, resaleMarkupAdjustment: 1,
         priceIncreasePercentage: 1, includeStandardSeats: 1, includeResaleSeats: 1,
-        useStubHubPricing: 1 }
+        useStubHubPricing: 1, dynamicPricingEnabled: 1, calculatedMarkup: 1 }
     ).lean();
     for (const ev of eventDocs) {
+      const isDynamic = ev.dynamicPricingEnabled === true;
       eventDetailsMap.set(ev.mapping_id, {
         url: ev.URL || '',
         stdAdj: ev.standardMarkupAdjustment ?? 0,
         resaleAdj: ev.resaleMarkupAdjustment ?? 0,
-        defaultPct: ev.priceIncreasePercentage ?? 0,
+        defaultPct: isDynamic
+          ? (ev.calculatedMarkup ?? ev.priceIncreasePercentage ?? 0)
+          : (ev.priceIncreasePercentage ?? 0),
         includeStandard: ev.includeStandardSeats !== false,
         includeResale: ev.includeResaleSeats !== false,
         useStubHubPricing: ev.useStubHubPricing === true,

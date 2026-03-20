@@ -10,6 +10,15 @@ interface Props {
   initialPct: number;
   initialStandardAdj?: number;
   initialResaleAdj?: number;
+  dynamicPricingEnabled?: boolean;
+  calculatedMarkup?: number;
+  markupFactors?: {
+    availability: number;
+    orderVelocity: number;
+    timeToEvent: number;
+    base: number;
+  };
+  lastMarkupCalcAt?: string;
 }
 
 const PRESETS = [0, 5, 10, 15, 20, 25, 30, 40, 50];
@@ -61,17 +70,21 @@ function AdjRow({
   );
 }
 
-export default function PriceEditor({ eventId, initialPct, initialStandardAdj = 0, initialResaleAdj = 0 }: Props) {
+export default function PriceEditor({
+  eventId, initialPct, initialStandardAdj = 0, initialResaleAdj = 0,
+  dynamicPricingEnabled: initialDynamic = true, calculatedMarkup, markupFactors, lastMarkupCalcAt,
+}: Props) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [value, setValue] = useState(initialPct);
   const [inputVal, setInputVal] = useState(String(initialPct));
   const [stdAdj, setStdAdj] = useState(initialStandardAdj);
   const [resaleAdj, setResaleAdj] = useState(initialResaleAdj);
+  const [dynamicEnabled, setDynamicEnabled] = useState(initialDynamic);
   const [saveState, setSaveState] = useState<SaveState>('idle');
   const successTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const isDirty = value !== initialPct || stdAdj !== initialStandardAdj || resaleAdj !== initialResaleAdj;
+  const isDirty = value !== initialPct || stdAdj !== initialStandardAdj || resaleAdj !== initialResaleAdj || dynamicEnabled !== initialDynamic;
 
   useEffect(() => { setInputVal(String(value)); }, [value]);
 
@@ -93,6 +106,7 @@ export default function PriceEditor({ eventId, initialPct, initialStandardAdj = 
           priceIncreasePercentage: value,
           standardMarkupAdjustment: stdAdj,
           resaleMarkupAdjustment: resaleAdj,
+          dynamicPricingEnabled: dynamicEnabled,
         } as Parameters<typeof updateEvent>[1], false);
         setSaveState('saved');
         router.refresh();
@@ -122,10 +136,57 @@ export default function PriceEditor({ eventId, initialPct, initialStandardAdj = 
       </div>
 
       <div className="px-5 py-4 space-y-5">
+        {/* --- Dynamic Pricing Toggle --- */}
+        <div className="flex items-center justify-between">
+          <div>
+            <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Dynamic Pricing</p>
+            <p className="text-[10px] text-gray-400">Auto-adjusts markup daily based on availability, orders, and timing</p>
+          </div>
+          <button
+            type="button"
+            onClick={() => { setDynamicEnabled(!dynamicEnabled); setSaveState('idle'); }}
+            className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+              dynamicEnabled ? 'bg-emerald-500' : 'bg-gray-300'
+            }`}
+          >
+            <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow-sm transition-transform ${
+              dynamicEnabled ? 'translate-x-6' : 'translate-x-1'
+            }`} />
+          </button>
+        </div>
+
+        {/* --- Dynamic markup breakdown (read-only) --- */}
+        {dynamicEnabled && markupFactors && (
+          <div className="bg-emerald-50 rounded-xl p-3.5 space-y-1.5">
+            <p className="text-[10px] font-bold text-emerald-600 uppercase tracking-widest">
+              Calculated Markup: {calculatedMarkup ?? 30}%
+            </p>
+            <div className="grid grid-cols-2 gap-x-4 gap-y-1">
+              <span className="text-[10px] text-gray-500">Base</span>
+              <span className="text-[10px] font-bold text-gray-700 text-right">{markupFactors.base}%</span>
+              <span className="text-[10px] text-gray-500">Availability</span>
+              <span className={`text-[10px] font-bold text-right ${markupFactors.availability > 0 ? 'text-emerald-600' : markupFactors.availability < 0 ? 'text-rose-600' : 'text-gray-400'}`}>
+                {markupFactors.availability > 0 ? '+' : ''}{markupFactors.availability}%
+              </span>
+              <span className="text-[10px] text-gray-500">Order Velocity</span>
+              <span className={`text-[10px] font-bold text-right ${markupFactors.orderVelocity < 0 ? 'text-rose-600' : 'text-gray-400'}`}>
+                {markupFactors.orderVelocity > 0 ? '+' : ''}{markupFactors.orderVelocity}%
+              </span>
+              <span className="text-[10px] text-gray-500">Time to Event</span>
+              <span className={`text-[10px] font-bold text-right ${markupFactors.timeToEvent < 0 ? 'text-rose-600' : 'text-gray-400'}`}>
+                {markupFactors.timeToEvent > 0 ? '+' : ''}{markupFactors.timeToEvent}%
+              </span>
+            </div>
+            {lastMarkupCalcAt && (
+              <p className="text-[9px] text-gray-400 pt-1">Last calculated: {new Date(lastMarkupCalcAt).toLocaleString()}</p>
+            )}
+          </div>
+        )}
+
         {/* --- Default (scraper) markup --- */}
-        <div>
+        <div className={dynamicEnabled ? 'opacity-40 pointer-events-none' : ''}>
           <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-2">
-            Default Markup
+            {dynamicEnabled ? 'Static Markup (override — disabled while dynamic is on)' : 'Default Markup'}
           </p>
           <div className="flex items-center gap-2 mb-2">
             <button

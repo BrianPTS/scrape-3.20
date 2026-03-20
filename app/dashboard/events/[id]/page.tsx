@@ -35,6 +35,15 @@ interface EventType {
   resaleMarkupAdjustment?: number;
   includeStandardSeats?: boolean;
   includeResaleSeats?: boolean;
+  dynamicPricingEnabled?: boolean;
+  calculatedMarkup?: number;
+  lastMarkupCalcAt?: string;
+  markupFactors?: {
+    availability: number;
+    orderVelocity: number;
+    timeToEvent: number;
+    base: number;
+  };
   Last_Updated?: string;
   createdAt?: string;
   updatedAt?: string;
@@ -245,20 +254,50 @@ export default async function EventDetailsPage({ params }: EventDetailsProps) {
             <div className="flex items-center gap-1.5 mb-1">
               <TrendingUp size={11} className="text-slate-400" />
               <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Markup</p>
+              {event.dynamicPricingEnabled && (
+                <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-emerald-50 text-emerald-600 border border-emerald-200">
+                  Dynamic
+                </span>
+              )}
             </div>
-            <div className="flex items-baseline gap-1.5">
-              <p className={`text-xl font-bold tabular-nums ${
-                pct > 0 ? 'text-rose-600' : pct < 0 ? 'text-blue-600' : 'text-slate-700'
-              }`}>{pct > 0 ? '+' : ''}{pct}%</p>
-            </div>
-            <div className="flex gap-1 mt-1">
-              <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded tabular-nums ${
-                stdAdj !== 0 ? (stdAdj > 0 ? 'bg-orange-50 text-orange-600' : 'bg-sky-50 text-sky-600') : 'bg-slate-100 text-slate-400'
-              }`}>S {pct + stdAdj}%</span>
-              <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded tabular-nums ${
-                resAdj !== 0 ? (resAdj > 0 ? 'bg-orange-50 text-orange-600' : 'bg-sky-50 text-sky-600') : 'bg-slate-100 text-slate-400'
-              }`}>R {pct + resAdj}%</span>
-            </div>
+            {event.dynamicPricingEnabled && event.markupFactors ? (() => {
+              const cm = event.calculatedMarkup ?? 30;
+              const f = event.markupFactors;
+              return (
+                <>
+                  <p className={`text-xl font-bold tabular-nums ${
+                    cm >= 30 ? 'text-emerald-600' : cm >= 25 ? 'text-amber-600' : 'text-rose-600'
+                  }`}>{cm}%</p>
+                  <div className="flex flex-col gap-0.5 mt-1">
+                    <span className="text-[9px] text-slate-400 tabular-nums">
+                      Base {f.base}%
+                      {f.availability !== 0 && <> / Avail <span className={f.availability > 0 ? 'text-emerald-600' : 'text-rose-500'}>{f.availability > 0 ? '+' : ''}{f.availability}</span></>}
+                      {f.orderVelocity !== 0 && <> / Orders <span className="text-rose-500">{f.orderVelocity}</span></>}
+                      {f.timeToEvent !== 0 && <> / Time <span className="text-rose-500">{f.timeToEvent}</span></>}
+                    </span>
+                  </div>
+                  {event.lastMarkupCalcAt && (
+                    <p className="text-[9px] text-slate-400 mt-0.5">Calc {timeAgo(event.lastMarkupCalcAt)}</p>
+                  )}
+                </>
+              );
+            })() : (
+              <>
+                <div className="flex items-baseline gap-1.5">
+                  <p className={`text-xl font-bold tabular-nums ${
+                    pct > 0 ? 'text-rose-600' : pct < 0 ? 'text-blue-600' : 'text-slate-700'
+                  }`}>{pct > 0 ? '+' : ''}{pct}%</p>
+                </div>
+                <div className="flex gap-1 mt-1">
+                  <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded tabular-nums ${
+                    stdAdj !== 0 ? (stdAdj > 0 ? 'bg-orange-50 text-orange-600' : 'bg-sky-50 text-sky-600') : 'bg-slate-100 text-slate-400'
+                  }`}>S {pct + stdAdj}%</span>
+                  <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded tabular-nums ${
+                    resAdj !== 0 ? (resAdj > 0 ? 'bg-orange-50 text-orange-600' : 'bg-sky-50 text-sky-600') : 'bg-slate-100 text-slate-400'
+                  }`}>R {pct + resAdj}%</span>
+                </div>
+              </>
+            )}
           </div>
 
           {/* Last Updated */}
@@ -356,6 +395,10 @@ export default async function EventDetailsPage({ params }: EventDetailsProps) {
             initialPct={pct}
             initialStandardAdj={stdAdj}
             initialResaleAdj={resAdj}
+            dynamicPricingEnabled={event.dynamicPricingEnabled !== false}
+            calculatedMarkup={event.calculatedMarkup}
+            markupFactors={event.markupFactors}
+            lastMarkupCalcAt={event.lastMarkupCalcAt}
           />
         </div>
       </div>

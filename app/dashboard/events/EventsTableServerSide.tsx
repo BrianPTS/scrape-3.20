@@ -395,16 +395,30 @@ export default async function EventsTableServerSide({ searchParams }: PageProps)
 
                       <td className="px-3 py-2 whitespace-nowrap text-right">
                         <div className="inline-flex flex-col items-end gap-1.5">
-                          {/* Base markup */}
-                          <span className={`font-bold text-xs px-2 py-0.5 rounded-full tabular-nums ${
-                            (event.priceIncreasePercentage || 0) > 0
-                              ? 'bg-rose-100 text-rose-700'
-                              : (event.priceIncreasePercentage || 0) < 0
-                                ? 'bg-blue-100 text-blue-700'
-                                : 'bg-gray-100 text-gray-500'
-                          }`}>
-                            {(event.priceIncreasePercentage || 0) > 0 ? '+' : ''}{event.priceIncreasePercentage || 0}%
-                          </span>
+                          {/* Dynamic or static markup */}
+                          {event.dynamicPricingEnabled !== false ? (() => {
+                            const cm = event.calculatedMarkup ?? 30;
+                            return (
+                              <span className={`font-bold text-xs px-2 py-0.5 rounded-full tabular-nums ${
+                                cm >= 30 ? 'bg-emerald-100 text-emerald-700'
+                                  : cm >= 25 ? 'bg-amber-100 text-amber-700'
+                                  : 'bg-rose-100 text-rose-700'
+                              }`}>
+                                {cm}%
+                                <span className="ml-1 text-[9px] opacity-60">dyn</span>
+                              </span>
+                            );
+                          })() : (
+                            <span className={`font-bold text-xs px-2 py-0.5 rounded-full tabular-nums ${
+                              (event.priceIncreasePercentage || 0) > 0
+                                ? 'bg-rose-100 text-rose-700'
+                                : (event.priceIncreasePercentage || 0) < 0
+                                  ? 'bg-blue-100 text-blue-700'
+                                  : 'bg-gray-100 text-gray-500'
+                            }`}>
+                              {(event.priceIncreasePercentage || 0) > 0 ? '+' : ''}{event.priceIncreasePercentage || 0}%
+                            </span>
+                          )}
                           {/* S / R adjustments */}
                           {(() => {
                             const stdAdj = event.standardMarkupAdjustment ?? 0;

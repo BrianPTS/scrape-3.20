@@ -96,6 +96,7 @@ orderSchema.index({ confirmedAt: 1, order_date: 1, status: 1 });
 orderSchema.index({ marketplace: 1 });
 orderSchema.index({ sync_id: 1 });
 orderSchema.index({ marketplace: 1, order_date: -1 });
+orderSchema.index({ portalEventId: 1, order_date: -1 }); // dynamic markup: most-recent-order-per-event
 
 export const Order =
   mongoose.models.Order || mongoose.model("Order", orderSchema);
