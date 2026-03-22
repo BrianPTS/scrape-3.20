@@ -487,7 +487,6 @@ export async function generateInventoryCsv(eventUpdateFilterMinutes: number = 0)
       'inventory.stubhubSectionLowest': 1,
       'inventory.stubhubAtFloor': 1,
       'inventory.stubhubPricedAt': 1,
-      'inventory.stubhubSectionAvg': 1,
     };
 
       // Chunked processing: first get all _ids (fast, no $lookup), then process
@@ -669,7 +668,6 @@ interface ConsecutiveGroupDocument {
     passthrough?: string;
     stubhubSuggestedPrice?: number | null;
     stubhubSectionLowest?: number | null;
-    stubhubSectionAvg?: number | null;
     stubhubAtFloor?: boolean;
     stubhubPricedAt?: Date | string | null;
   };
@@ -885,16 +883,7 @@ async function processBatch(batch: ConsecutiveGroupDocument[]): Promise<CsvRow[]
           else if (sellThroughPct < 5 && sectionOrders === 0) adjustedListPrice *= 0.98; // dead section
         }
 
-        // 5. StubHub soft price cap: prevent overpricing vs market
-        // If StubHub data is available (but not in full StubHub pricing mode),
-        // cap our price at StubHub section avg + 10% to stay competitive
-        const shAvg = inventory?.stubhubSectionAvg;
-        if (shAvg != null && shAvg > 0) {
-          const maxPrice = shAvg * 1.10;
-          if (adjustedListPrice > maxPrice) {
-            adjustedListPrice = maxPrice;
-          }
-        }
+
       }
     }
 
