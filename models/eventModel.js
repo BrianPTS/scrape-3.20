@@ -51,7 +51,7 @@ const eventSchema = new mongoose.Schema(
     },
     priceIncreasePercentage: {
       type: Number,
-      default: 25, // Default 25% markup
+      default: 15, // Default 15% target ROI (was 25% raw markup)
     },
     standardMarkupAdjustment: {
       type: Number,
@@ -101,7 +101,7 @@ const eventSchema = new mongoose.Schema(
     },
     calculatedMarkup: {
       type: Number,
-      default: 30,
+      default: 15, // Default 15% target ROI (was 30% raw markup)
     },
     lastMarkupCalcAt: {
       type: Date,

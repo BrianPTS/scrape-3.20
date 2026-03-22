@@ -399,7 +399,7 @@ export async function generateInventoryCsv(eventUpdateFilterMinutes: number = 0)
           useStubHubPricing: ev.useStubHubPricing === true,
           availabilityPct: ev.Availability_Percentage ?? null,
           dynamicPricingEnabled: isDynamic,
-          calculatedMarkup: ev.calculatedMarkup ?? 30,
+          calculatedMarkup: ev.calculatedMarkup ?? 15,
         });
       }
       console.log(`[CSV] Pre-fetched details for ${eventDetailsMap.size} events`);
@@ -803,10 +803,13 @@ async function processBatch(batch: ConsecutiveGroupDocument[]): Promise<CsvRow[]
       }
     }
 
-    // ── Minimum $15-per-ticket profit floor (independent of all markup systems) ──
+    // ── Minimum ROI floor: 5% profit on cost after 8% sell fee ──
     const ticketCost = inventory?.cost || inventory?.face_price || 0;
     if (ticketCost > 0) {
-      adjustedListPrice = Math.max(adjustedListPrice, ticketCost + 15);
+      const MIN_ROI_PCT = 5;
+      const SELL_FEE_FRACTION = 0.08;
+      const minListPrice = ticketCost * (1 + MIN_ROI_PCT / 100) / (1 - SELL_FEE_FRACTION);
+      adjustedListPrice = Math.max(adjustedListPrice, minListPrice);
     }
 
     // Pre-compute expensive operations with null safety
