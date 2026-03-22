@@ -803,6 +803,12 @@ async function processBatch(batch: ConsecutiveGroupDocument[]): Promise<CsvRow[]
       }
     }
 
+    // ── Minimum $15-per-ticket profit floor (independent of all markup systems) ──
+    const ticketCost = inventory?.cost || inventory?.face_price || 0;
+    if (ticketCost > 0) {
+      adjustedListPrice = Math.max(adjustedListPrice, ticketCost + 15);
+    }
+
     // Pre-compute expensive operations with null safety
     // GA/Lawn seats have synthetic seat numbers — clear them so Sync doesn't see fake numbers
     const seatsString = isGALawn ? '' :
