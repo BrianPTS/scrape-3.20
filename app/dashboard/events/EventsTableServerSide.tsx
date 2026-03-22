@@ -1,8 +1,8 @@
 import React from 'react';
 import Link from 'next/link';
-import { 
+import {
   Calendar, MapPin, Users,
-  AlertCircle, Clock, TrendingUp,
+  AlertCircle, Clock, TrendingUp, Zap,
   ChevronUp, ChevronDown, ChevronsUpDown
 } from 'lucide-react';
 import { getPaginatedEventsAdvanced, getEventCounts, getInventoryCountsByType } from '@/actions/eventActions';
@@ -33,6 +33,8 @@ interface EventData {
   stubhubEnabled?: boolean;
   Availability_Percentage?: number | null;
   Venue_Capacity?: number;
+  dynamicPricingEnabled?: boolean;
+  calculatedMarkup?: number;
 }
 
 interface ResolvedSearchParams {
@@ -395,29 +397,38 @@ export default async function EventsTableServerSide({ searchParams }: PageProps)
 
                       <td className="px-3 py-2 whitespace-nowrap text-right">
                         <div className="inline-flex flex-col items-end gap-1.5">
-                          {/* Dynamic or static markup */}
+                          {/* Dynamic / Static pricing badge + markup value */}
                           {event.dynamicPricingEnabled !== false ? (() => {
                             const cm = event.calculatedMarkup ?? 30;
                             return (
-                              <span className={`font-bold text-xs px-2 py-0.5 rounded-full tabular-nums ${
-                                cm >= 30 ? 'bg-emerald-100 text-emerald-700'
-                                  : cm >= 25 ? 'bg-amber-100 text-amber-700'
-                                  : 'bg-rose-100 text-rose-700'
-                              }`}>
-                                {cm}%
-                                <span className="ml-1 text-[9px] opacity-60">dyn</span>
-                              </span>
+                              <div className="flex flex-col items-end gap-0.5">
+                                <span className="inline-flex items-center gap-0.5 text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-violet-100 text-violet-700 border border-violet-200">
+                                  <Zap size={9} className="fill-violet-500 text-violet-500" />Dynamic
+                                </span>
+                                <span className={`font-bold text-xs px-2 py-0.5 rounded-full tabular-nums ${
+                                  cm >= 30 ? 'bg-emerald-100 text-emerald-700'
+                                    : cm >= 25 ? 'bg-amber-100 text-amber-700'
+                                    : 'bg-rose-100 text-rose-700'
+                                }`}>
+                                  {cm}%
+                                </span>
+                              </div>
                             );
                           })() : (
-                            <span className={`font-bold text-xs px-2 py-0.5 rounded-full tabular-nums ${
-                              (event.priceIncreasePercentage || 0) > 0
-                                ? 'bg-rose-100 text-rose-700'
-                                : (event.priceIncreasePercentage || 0) < 0
-                                  ? 'bg-blue-100 text-blue-700'
-                                  : 'bg-gray-100 text-gray-500'
-                            }`}>
-                              {(event.priceIncreasePercentage || 0) > 0 ? '+' : ''}{event.priceIncreasePercentage || 0}%
-                            </span>
+                            <div className="flex flex-col items-end gap-0.5">
+                              <span className="inline-flex items-center text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-slate-100 text-slate-500 border border-slate-200">
+                                Static
+                              </span>
+                              <span className={`font-bold text-xs px-2 py-0.5 rounded-full tabular-nums ${
+                                (event.priceIncreasePercentage || 0) > 0
+                                  ? 'bg-rose-100 text-rose-700'
+                                  : (event.priceIncreasePercentage || 0) < 0
+                                    ? 'bg-blue-100 text-blue-700'
+                                    : 'bg-gray-100 text-gray-500'
+                              }`}>
+                                {(event.priceIncreasePercentage || 0) > 0 ? '+' : ''}{event.priceIncreasePercentage || 0}%
+                              </span>
+                            </div>
                           )}
                           {/* S / R adjustments */}
                           {(() => {
@@ -560,15 +571,38 @@ export default async function EventsTableServerSide({ searchParams }: PageProps)
                         <div className="flex flex-col items-end gap-1.5">
                           <div className="flex items-center justify-end gap-2">
                             <TrendingUp size={14} className="text-gray-400" />
-                            <span className={`font-bold text-xs px-2 py-0.5 rounded-full tabular-nums ${
-                              (event.priceIncreasePercentage || 0) > 0
-                                ? 'bg-rose-100 text-rose-700'
-                                : (event.priceIncreasePercentage || 0) < 0
-                                  ? 'bg-blue-100 text-blue-700'
-                                  : 'bg-gray-100 text-gray-500'
-                            }`}>
-                              {(event.priceIncreasePercentage || 0) > 0 ? '+' : ''}{event.priceIncreasePercentage || 0}%
-                            </span>
+                            {event.dynamicPricingEnabled !== false ? (() => {
+                              const cm = event.calculatedMarkup ?? 30;
+                              return (
+                                <div className="flex items-center gap-1">
+                                  <span className="inline-flex items-center gap-0.5 text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-violet-100 text-violet-700 border border-violet-200">
+                                    <Zap size={9} className="fill-violet-500 text-violet-500" />Dynamic
+                                  </span>
+                                  <span className={`font-bold text-xs px-2 py-0.5 rounded-full tabular-nums ${
+                                    cm >= 30 ? 'bg-emerald-100 text-emerald-700'
+                                      : cm >= 25 ? 'bg-amber-100 text-amber-700'
+                                      : 'bg-rose-100 text-rose-700'
+                                  }`}>
+                                    {cm}%
+                                  </span>
+                                </div>
+                              );
+                            })() : (
+                              <div className="flex items-center gap-1">
+                                <span className="inline-flex items-center text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-slate-100 text-slate-500 border border-slate-200">
+                                  Static
+                                </span>
+                                <span className={`font-bold text-xs px-2 py-0.5 rounded-full tabular-nums ${
+                                  (event.priceIncreasePercentage || 0) > 0
+                                    ? 'bg-rose-100 text-rose-700'
+                                    : (event.priceIncreasePercentage || 0) < 0
+                                      ? 'bg-blue-100 text-blue-700'
+                                      : 'bg-gray-100 text-gray-500'
+                                }`}>
+                                  {(event.priceIncreasePercentage || 0) > 0 ? '+' : ''}{event.priceIncreasePercentage || 0}%
+                                </span>
+                              </div>
+                            )}
                           </div>
                           {(() => {
                             const stdAdj = event.standardMarkupAdjustment ?? 0;
