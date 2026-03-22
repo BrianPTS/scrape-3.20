@@ -53,6 +53,12 @@ const eventSchema = new mongoose.Schema(
       type: Number,
       default: 15, // Default 15% target ROI (was 25% raw markup)
     },
+    // A/B pricing strategy: "dynamic" | "static" | "manual"
+    pricingStrategy: {
+      type: String,
+      enum: ["dynamic", "static", "manual"],
+      default: "dynamic",
+    },
     standardMarkupAdjustment: {
       type: Number,
       default: 0, // +/- offset on top of scraper default for STANDARD tickets

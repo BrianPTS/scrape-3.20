@@ -600,6 +600,35 @@ export async function GET(request: NextRequest) {
       } catch (err) {
         console.error('[sync] inventory snapshot error:', (err as Error).message);
       }
+
+      // Stamp pricingStrategy from Event onto new orders
+      try {
+        const ordersForStrategy = await Order.find(
+          { order_id: { $in: newOrderIds }, portalEventId: { $ne: null }, pricingStrategy: null },
+          { portalEventId: 1 }
+        ).lean();
+
+        if (ordersForStrategy.length > 0) {
+          const eventIds = [...new Set(ordersForStrategy.map((o: any) => o.portalEventId))];
+          const events = await Event.find({ _id: { $in: eventIds } }, { pricingStrategy: 1 }).lean();
+          const strategyMap = new Map(events.map((e: any) => [String(e._id), e.pricingStrategy || 'dynamic']));
+
+          const strategyOps = ordersForStrategy
+            .filter((o: any) => strategyMap.has(String(o.portalEventId)))
+            .map((o: any) => ({
+              updateOne: {
+                filter: { _id: o._id },
+                update: { $set: { pricingStrategy: strategyMap.get(String(o.portalEventId)) } },
+              },
+            }));
+          if (strategyOps.length > 0) {
+            await Order.bulkWrite(strategyOps);
+            console.log(`[sync] pricing strategy stamped on ${strategyOps.length} orders`);
+          }
+        }
+      } catch (err) {
+        console.error('[sync] pricing strategy stamp error:', (err as Error).message);
+      }
     }
 
     // Fetch seat data from /transfers for NEW orders + backfill existing orders

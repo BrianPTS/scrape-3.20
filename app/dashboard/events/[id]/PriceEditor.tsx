@@ -5,6 +5,8 @@ import { useRouter } from 'next/navigation';
 import { TrendingUp, Check, Minus, Plus } from 'lucide-react';
 import { updateEvent } from '@/actions/eventActions';
 
+type PricingStrategy = 'dynamic' | 'static' | 'manual';
+
 interface Props {
   eventId: string;
   initialPct: number;
@@ -19,6 +21,7 @@ interface Props {
     base: number;
   };
   lastMarkupCalcAt?: string;
+  initialPricingStrategy?: PricingStrategy;
 }
 
 const PRESETS = [0, 5, 10, 15, 20, 25, 30, 40, 50];
@@ -70,9 +73,16 @@ function AdjRow({
   );
 }
 
+const STRATEGY_OPTIONS: { value: PricingStrategy; label: string; desc: string }[] = [
+  { value: 'dynamic', label: 'Dynamic', desc: 'Auto-adjusts based on availability, velocity & timing' },
+  { value: 'static', label: 'Static', desc: 'Fixed markup percentage — no auto-adjustments' },
+  { value: 'manual', label: 'Manual', desc: 'You set the exact list price per event' },
+];
+
 export default function PriceEditor({
   eventId, initialPct, initialStandardAdj = 0, initialResaleAdj = 0,
   dynamicPricingEnabled: initialDynamic = true, calculatedMarkup, markupFactors, lastMarkupCalcAt,
+  initialPricingStrategy = 'dynamic',
 }: Props) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
@@ -81,10 +91,11 @@ export default function PriceEditor({
   const [stdAdj, setStdAdj] = useState(initialStandardAdj);
   const [resaleAdj, setResaleAdj] = useState(initialResaleAdj);
   const [dynamicEnabled, setDynamicEnabled] = useState(initialDynamic);
+  const [strategy, setStrategy] = useState<PricingStrategy>(initialPricingStrategy);
   const [saveState, setSaveState] = useState<SaveState>('idle');
   const successTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const isDirty = value !== initialPct || stdAdj !== initialStandardAdj || resaleAdj !== initialResaleAdj || dynamicEnabled !== initialDynamic;
+  const isDirty = value !== initialPct || stdAdj !== initialStandardAdj || resaleAdj !== initialResaleAdj || dynamicEnabled !== initialDynamic || strategy !== initialPricingStrategy;
 
   useEffect(() => { setInputVal(String(value)); }, [value]);
 
@@ -107,6 +118,7 @@ export default function PriceEditor({
           standardMarkupAdjustment: stdAdj,
           resaleMarkupAdjustment: resaleAdj,
           dynamicPricingEnabled: dynamicEnabled,
+          pricingStrategy: strategy,
         } as Parameters<typeof updateEvent>[1], false);
         setSaveState('saved');
         router.refresh();
@@ -136,6 +148,35 @@ export default function PriceEditor({
       </div>
 
       <div className="px-5 py-4 space-y-5">
+        {/* --- Pricing Strategy Selector --- */}
+        <div>
+          <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-2">Pricing Strategy</p>
+          <div className="grid grid-cols-3 gap-1.5">
+            {STRATEGY_OPTIONS.map((opt) => (
+              <button
+                key={opt.value}
+                type="button"
+                onClick={() => {
+                  setStrategy(opt.value);
+                  if (opt.value === 'dynamic') setDynamicEnabled(true);
+                  else if (opt.value === 'static') setDynamicEnabled(false);
+                  setSaveState('idle');
+                }}
+                className={`px-2 py-2 rounded-xl text-center transition-all ${
+                  strategy === opt.value
+                    ? 'bg-blue-600 text-white shadow-sm'
+                    : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                }`}
+              >
+                <p className="text-xs font-bold">{opt.label}</p>
+              </button>
+            ))}
+          </div>
+          <p className="text-[10px] text-gray-400 mt-1.5">
+            {STRATEGY_OPTIONS.find((o) => o.value === strategy)?.desc}
+          </p>
+        </div>
+
         {/* --- Dynamic Pricing Toggle --- */}
         <div className="flex items-center justify-between">
           <div>

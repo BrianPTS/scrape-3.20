@@ -19,6 +19,7 @@ import {
   Shield,
   BarChart3,
   Users,
+  FileBarChart,
 } from 'lucide-react';
 
 interface FeatureFlags {
@@ -143,6 +144,12 @@ const DashboardLayout = ({ children }: { children: React.ReactNode }) => {
       label: 'Market Intelligence',
       icon: <BarChart3 className="w-5 h-5" />,
       flagKey: 'marketIntelligence' as keyof FeatureFlags,
+    },
+    {
+      path: '/dashboard/reports',
+      label: 'Reports',
+      icon: <FileBarChart className="w-5 h-5" />,
+      flagKey: null, // always visible
     },
     {
       path: '/dashboard/export-csv',

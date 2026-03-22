@@ -57,6 +57,13 @@ const orderSchema = new mongoose.Schema(
     },
     ticketmasterUrl: String,
 
+    // Pricing strategy used when this order was placed
+    pricingStrategy: {
+      type: String,
+      enum: ["dynamic", "static", "manual"],
+      default: null,
+    },
+
     // Inventory snapshot at order time
     inventorySnapshot: {
       eventAvailabilityPct: { type: Number, default: null },   // Event-level availability %

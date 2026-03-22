@@ -377,13 +377,14 @@ export async function generateInventoryCsv(eventUpdateFilterMinutes: number = 0)
         includeStandard: boolean; includeResale: boolean; useStubHubPricing: boolean;
         availabilityPct: number | null;
         dynamicPricingEnabled: boolean; calculatedMarkup: number;
+        pricingStrategy: string;
       }>();
       const eventDocs = await Event.find(
         { mapping_id: { $in: eventMappingIds } },
         { mapping_id: 1, URL: 1, standardMarkupAdjustment: 1, resaleMarkupAdjustment: 1,
           priceIncreasePercentage: 1, includeStandardSeats: 1, includeResaleSeats: 1,
           useStubHubPricing: 1, Availability_Percentage: 1,
-          dynamicPricingEnabled: 1, calculatedMarkup: 1 }
+          dynamicPricingEnabled: 1, calculatedMarkup: 1, pricingStrategy: 1 }
       ).lean();
       for (const ev of eventDocs) {
         const isDynamic = ev.dynamicPricingEnabled === true;
@@ -400,6 +401,7 @@ export async function generateInventoryCsv(eventUpdateFilterMinutes: number = 0)
           availabilityPct: ev.Availability_Percentage ?? null,
           dynamicPricingEnabled: isDynamic,
           calculatedMarkup: ev.calculatedMarkup ?? 15,
+          pricingStrategy: ev.pricingStrategy || 'dynamic',
         });
       }
       console.log(`[CSV] Pre-fetched details for ${eventDetailsMap.size} events`);
@@ -497,6 +499,7 @@ export async function generateInventoryCsv(eventUpdateFilterMinutes: number = 0)
             doc.event_default_pct = evData?.defaultPct ?? 0;
             doc.event_use_stubhub_pricing = evData?.useStubHubPricing ?? false;
             doc.event_availability_pct = evData?.availabilityPct ?? null;
+            doc.event_pricing_strategy = evData?.pricingStrategy ?? 'dynamic';
             enrichedDocs.push(doc);
           }
           if (enrichedDocs.length > 0) {
@@ -632,6 +635,7 @@ interface ConsecutiveGroupDocument {
   event_default_pct?: number;
   event_use_stubhub_pricing?: boolean;
   event_availability_pct?: number | null;
+  event_pricing_strategy?: string;
   seats?: Array<{ number: string | number }>;
 }
 
@@ -752,62 +756,77 @@ async function processBatch(batch: ConsecutiveGroupDocument[]): Promise<CsvRow[]
     const row = inventory?.row || '';
     const isGALawn = /^GA\d+$/i.test(row);
 
-    // StubHub auto-pricing: if enabled for this event and scraper has written a price, use it.
-    // Otherwise fall back to the standard markup formula.
-    const useStubHub = doc.event_use_stubhub_pricing && inventory?.stubhubSuggestedPrice != null;
-
-    // Apply per-ticket-type markup adjustment on top of already-marked-up listPrice.
-    // Formula: adjustedPrice = listPrice * (1 + (defaultPct + adj) / 100) / (1 + defaultPct / 100)
+    // ── Pricing Strategy Branching ──
+    const pricingStrategy = doc.event_pricing_strategy || 'dynamic';
     const rawListPrice = inventory?.listPrice || 0;
-    const defaultPct = doc.event_default_pct ?? 0;
-    const adj = isResale ? (doc.event_resale_adj ?? 0) : (doc.event_std_adj ?? 0);
-    const markupPrice = defaultPct !== 0 || adj !== 0
-      ? rawListPrice * (1 + (defaultPct + adj) / 100) / (1 + defaultPct / 100)
-      : rawListPrice;
+    const ticketCost = inventory?.cost || inventory?.face_price || 0;
+    const SELL_FEE_FRACTION = 0.08;
+    const MIN_ROI_PCT = 5;
+    let adjustedListPrice: number;
 
-    let adjustedListPrice = useStubHub ? inventory!.stubhubSuggestedPrice! : markupPrice;
+    if (pricingStrategy === 'manual') {
+      // Manual: use the listPrice exactly as stored (operator set it directly)
+      adjustedListPrice = rawListPrice;
 
-    // ── Risk Markup Boosts (only when NOT using StubHub pricing) ──
-    if (!useStubHub) {
-      const sec = inventory?.section || '';
-      const eventId = doc.mapping_id || doc.eventId || '';
-      const sectionKey = `${eventId}|${sec}`;
-      const currentRowRank = rankRow(row);
-      const frontRowRank = sectionFrontRow.get(sectionKey) ?? Infinity;
-      const currentQty = inventory?.quantity || 0;
-      const currentCost = inventory?.cost || inventory?.listPrice || 0;
+    } else if (pricingStrategy === 'static') {
+      // Static: apply flat markup + per-type adjustments, NO risk boosts
+      const defaultPct = doc.event_default_pct ?? 0;
+      const adj = isResale ? (doc.event_resale_adj ?? 0) : (doc.event_std_adj ?? 0);
+      adjustedListPrice = defaultPct !== 0 || adj !== 0
+        ? rawListPrice * (1 + (defaultPct + adj) / 100) / (1 + defaultPct / 100)
+        : rawListPrice;
 
-      // 1. Front-row boost: +10% if this is the lowest row in the section
-      const isFrontRow = currentRowRank === frontRowRank && currentRowRank < Infinity;
-      if (isFrontRow) {
-        adjustedListPrice *= (1 + FIRST_ROW_BOOST_PCT / 100);
-      }
+    } else {
+      // Dynamic (default): full markup + risk boosts + scarcity
+      const useStubHub = doc.event_use_stubhub_pricing && inventory?.stubhubSuggestedPrice != null;
 
-      // 2. No-upgrade-path boost: +10% if no cheaper closer row with same qty (front-row exempt)
-      if (!isFrontRow && currentRowRank < Infinity) {
-        const listings = sectionListings.get(sectionKey) || [];
-        const hasUpgrade = listings.some(
-          (other) => other.rowRank < currentRowRank && other.qty === currentQty && other.cost <= currentCost * 1.10
-        );
-        if (!hasUpgrade) {
-          adjustedListPrice *= (1 + NO_UPGRADE_BOOST_PCT / 100);
+      const defaultPct = doc.event_default_pct ?? 0;
+      const adj = isResale ? (doc.event_resale_adj ?? 0) : (doc.event_std_adj ?? 0);
+      const markupPrice = defaultPct !== 0 || adj !== 0
+        ? rawListPrice * (1 + (defaultPct + adj) / 100) / (1 + defaultPct / 100)
+        : rawListPrice;
+
+      adjustedListPrice = useStubHub ? inventory!.stubhubSuggestedPrice! : markupPrice;
+
+      // Risk Markup Boosts (only when NOT using StubHub pricing)
+      if (!useStubHub) {
+        const sec = inventory?.section || '';
+        const eventId = doc.mapping_id || doc.eventId || '';
+        const sectionKey = `${eventId}|${sec}`;
+        const currentRowRank = rankRow(row);
+        const frontRowRank = sectionFrontRow.get(sectionKey) ?? Infinity;
+        const currentQty = inventory?.quantity || 0;
+        const currentCost = inventory?.cost || inventory?.listPrice || 0;
+
+        // 1. Front-row boost: +10% if this is the lowest row in the section
+        const isFrontRow = currentRowRank === frontRowRank && currentRowRank < Infinity;
+        if (isFrontRow) {
+          adjustedListPrice *= (1 + FIRST_ROW_BOOST_PCT / 100);
         }
-      }
 
-      // 3. Scarcity boost: tiered increase when event availability < threshold
-      const availPct = doc.event_availability_pct;
-      if (availPct != null && availPct < SCARCITY_THRESHOLD_PCT) {
-        const tiersBelowThreshold = Math.ceil((SCARCITY_THRESHOLD_PCT - availPct) / SCARCITY_STEP_SIZE);
-        const scarcityBoostPct = tiersBelowThreshold * SCARCITY_STEP_SIZE;
-        adjustedListPrice *= (1 + scarcityBoostPct / 100);
+        // 2. No-upgrade-path boost: +10% if no cheaper closer row with same qty (front-row exempt)
+        if (!isFrontRow && currentRowRank < Infinity) {
+          const listings = sectionListings.get(sectionKey) || [];
+          const hasUpgrade = listings.some(
+            (other) => other.rowRank < currentRowRank && other.qty === currentQty && other.cost <= currentCost * 1.10
+          );
+          if (!hasUpgrade) {
+            adjustedListPrice *= (1 + NO_UPGRADE_BOOST_PCT / 100);
+          }
+        }
+
+        // 3. Scarcity boost: tiered increase when event availability < threshold
+        const availPct = doc.event_availability_pct;
+        if (availPct != null && availPct < SCARCITY_THRESHOLD_PCT) {
+          const tiersBelowThreshold = Math.ceil((SCARCITY_THRESHOLD_PCT - availPct) / SCARCITY_STEP_SIZE);
+          const scarcityBoostPct = tiersBelowThreshold * SCARCITY_STEP_SIZE;
+          adjustedListPrice *= (1 + scarcityBoostPct / 100);
+        }
       }
     }
 
-    // ── Minimum ROI floor: 5% profit on cost after 8% sell fee ──
-    const ticketCost = inventory?.cost || inventory?.face_price || 0;
+    // ── Minimum ROI floor: 5% profit on cost after 8% sell fee (all strategies) ──
     if (ticketCost > 0) {
-      const MIN_ROI_PCT = 5;
-      const SELL_FEE_FRACTION = 0.08;
       const minListPrice = ticketCost * (1 + MIN_ROI_PCT / 100) / (1 - SELL_FEE_FRACTION);
       adjustedListPrice = Math.max(adjustedListPrice, minListPrice);
     }
@@ -990,12 +1009,14 @@ export async function* generateInventoryCsvStream(
     const eventDetailsMap = new Map<string, {
       url: string; stdAdj: number; resaleAdj: number; defaultPct: number;
       includeStandard: boolean; includeResale: boolean; useStubHubPricing: boolean;
+      availabilityPct: number | null; pricingStrategy: string;
     }>();
     const eventDocs = await Event.find(
       { mapping_id: { $in: eventMappingIds } },
       { mapping_id: 1, URL: 1, standardMarkupAdjustment: 1, resaleMarkupAdjustment: 1,
         priceIncreasePercentage: 1, includeStandardSeats: 1, includeResaleSeats: 1,
-        useStubHubPricing: 1, dynamicPricingEnabled: 1, calculatedMarkup: 1 }
+        useStubHubPricing: 1, dynamicPricingEnabled: 1, calculatedMarkup: 1,
+        Availability_Percentage: 1, pricingStrategy: 1 }
     ).lean();
     for (const ev of eventDocs) {
       const isDynamic = ev.dynamicPricingEnabled === true;
@@ -1009,6 +1030,8 @@ export async function* generateInventoryCsvStream(
         includeStandard: ev.includeStandardSeats !== false,
         includeResale: ev.includeResaleSeats !== false,
         useStubHubPricing: ev.useStubHubPricing === true,
+        availabilityPct: ev.Availability_Percentage ?? null,
+        pricingStrategy: ev.pricingStrategy || 'dynamic',
       });
     }
 
@@ -1075,6 +1098,8 @@ export async function* generateInventoryCsvStream(
           doc.event_resale_adj = evData?.resaleAdj ?? 0;
           doc.event_default_pct = evData?.defaultPct ?? 0;
           doc.event_use_stubhub_pricing = evData?.useStubHubPricing ?? false;
+          doc.event_availability_pct = evData?.availabilityPct ?? null;
+          doc.event_pricing_strategy = evData?.pricingStrategy ?? 'dynamic';
           enrichedDocs.push(doc);
         }
 

@@ -33,6 +33,7 @@ interface EventType {
   priceIncreasePercentage?: number;
   standardMarkupAdjustment?: number;
   resaleMarkupAdjustment?: number;
+  pricingStrategy?: string;
   includeStandardSeats?: boolean;
   includeResaleSeats?: boolean;
   dynamicPricingEnabled?: boolean;
@@ -399,6 +400,7 @@ export default async function EventDetailsPage({ params }: EventDetailsProps) {
             calculatedMarkup={event.calculatedMarkup}
             markupFactors={event.markupFactors}
             lastMarkupCalcAt={event.lastMarkupCalcAt}
+            initialPricingStrategy={event.pricingStrategy || 'dynamic'}
           />
         </div>
       </div>
