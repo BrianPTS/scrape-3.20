@@ -167,6 +167,33 @@ export default function ReportsClient() {
                   <p className="text-[10px] text-slate-400 uppercase tracking-wide">Avg $/Ticket</p>
                   <p className="text-lg font-bold text-slate-800">{formatCurrency(s.avgUnitPrice)}</p>
                 </div>
+                <div>
+                  <p className="text-[10px] text-slate-400 uppercase tracking-wide">Total Profit</p>
+                  <p className={`text-lg font-bold ${s.totalProfit != null ? (s.totalProfit >= 0 ? 'text-emerald-700' : 'text-red-600') : 'text-slate-400'}`}>
+                    {s.totalProfit != null ? formatCurrency(s.totalProfit) : '—'}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-[10px] text-slate-400 uppercase tracking-wide">Avg ROI</p>
+                  <p className={`text-lg font-bold ${s.avgROIPct != null ? (s.avgROIPct >= 0 ? 'text-emerald-700' : 'text-red-600') : 'text-slate-400'}`}>
+                    {s.avgROIPct != null ? `${s.avgROIPct.toFixed(1)}%` : '—'}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-[10px] text-slate-400 uppercase tracking-wide">Total Cost</p>
+                  <p className="text-lg font-bold text-slate-800">
+                    {s.totalCost != null ? formatCurrency(s.totalCost) : '—'}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-[10px] text-slate-400 uppercase tracking-wide">Sell-Through</p>
+                  <p className={`text-lg font-bold ${s.sellThroughPct != null ? (s.sellThroughPct >= 50 ? 'text-emerald-700' : s.sellThroughPct >= 20 ? 'text-amber-600' : 'text-red-600') : 'text-slate-400'}`}>
+                    {s.sellThroughPct != null ? `${s.sellThroughPct}%` : '—'}
+                  </p>
+                  {s.activeListings > 0 && (
+                    <p className="text-[9px] text-slate-400">{s.activeListings.toLocaleString()} listings</p>
+                  )}
+                </div>
               </div>
             </div>
           ))}
@@ -195,6 +222,9 @@ export default function ReportsClient() {
                   <th className="px-4 py-2.5 text-right text-[10px] font-bold text-slate-400 uppercase tracking-wider">Qty</th>
                   <th className="px-4 py-2.5 text-right text-[10px] font-bold text-slate-400 uppercase tracking-wider">Unit Price</th>
                   <th className="px-4 py-2.5 text-right text-[10px] font-bold text-slate-400 uppercase tracking-wider">Total</th>
+                  <th className="px-4 py-2.5 text-right text-[10px] font-bold text-slate-400 uppercase tracking-wider">Cost</th>
+                  <th className="px-4 py-2.5 text-right text-[10px] font-bold text-slate-400 uppercase tracking-wider">Profit</th>
+                  <th className="px-4 py-2.5 text-right text-[10px] font-bold text-slate-400 uppercase tracking-wider">ROI</th>
                   <th className="px-4 py-2.5 text-left text-[10px] font-bold text-slate-400 uppercase tracking-wider">Marketplace</th>
                   <th className="px-4 py-2.5 text-left text-[10px] font-bold text-slate-400 uppercase tracking-wider">Status</th>
                   <th className="px-4 py-2.5 text-left text-[10px] font-bold text-slate-400 uppercase tracking-wider">Strategy</th>
@@ -215,6 +245,13 @@ export default function ReportsClient() {
                     <td className="px-4 py-2 text-xs text-slate-800 text-right font-medium">{o.quantity}</td>
                     <td className="px-4 py-2 text-xs text-slate-800 text-right font-medium">{formatCurrency(o.unit_price)}</td>
                     <td className="px-4 py-2 text-xs text-slate-800 text-right font-bold">{formatCurrency(o.total)}</td>
+                    <td className="px-4 py-2 text-xs text-slate-600 text-right">{o.cost != null ? formatCurrency(o.cost) : '—'}</td>
+                    <td className={`px-4 py-2 text-xs text-right font-semibold ${o.profit != null ? (o.profit >= 0 ? 'text-emerald-700' : 'text-red-600') : 'text-slate-400'}`}>
+                      {o.profit != null ? formatCurrency(o.profit) : '—'}
+                    </td>
+                    <td className={`px-4 py-2 text-xs text-right font-semibold ${o.profitPct != null ? (o.profitPct >= 0 ? 'text-emerald-700' : 'text-red-600') : 'text-slate-400'}`}>
+                      {o.profitPct != null ? `${o.profitPct.toFixed(1)}%` : '—'}
+                    </td>
                     <td className="px-4 py-2 text-xs text-slate-500">{o.marketplace}</td>
                     <td className="px-4 py-2">
                       <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${

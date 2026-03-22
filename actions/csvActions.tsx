@@ -3,6 +3,7 @@
 import dbConnect from '../lib/dbConnect';
 import { ConsecutiveGroup } from '../models/seatModel';
 import { Event } from '../models/eventModel';
+import { Order } from '../models/orderModel';
 import { SchedulerSettings } from '../models/schedulerModel';
 import { AutoDeleteSettings } from '../models/autoDeleteModel';
 import { ExclusionRules } from '../models/exclusionRulesModel';
@@ -239,6 +240,10 @@ async function withRetry<T>(
 // Cache for resolved venue timezones within a CSV generation run
 const _venueTzCache = new Map<string, string | null>();
 
+// Section-level sell-through data (populated per CSV run)
+let _sectionOrderCounts = new Map<string, number>();
+let _sectionListingCounts = new Map<string, number>();
+
 // ── Global: stop events with seats <= threshold & clear their inventory ──
 export async function stopLowSeatEvents(): Promise<{ stopped: number; eventIds: string[] }> {
   await dbConnect();
@@ -384,7 +389,8 @@ export async function generateInventoryCsv(eventUpdateFilterMinutes: number = 0)
         { mapping_id: 1, URL: 1, standardMarkupAdjustment: 1, resaleMarkupAdjustment: 1,
           priceIncreasePercentage: 1, includeStandardSeats: 1, includeResaleSeats: 1,
           useStubHubPricing: 1, Availability_Percentage: 1,
-          dynamicPricingEnabled: 1, calculatedMarkup: 1, pricingStrategy: 1 }
+          dynamicPricingEnabled: 1, calculatedMarkup: 1, pricingStrategy: 1,
+          roiFloor: 1, roiCeiling: 1 }
       ).lean();
       for (const ev of eventDocs) {
         const isDynamic = ev.dynamicPricingEnabled === true;
@@ -402,9 +408,49 @@ export async function generateInventoryCsv(eventUpdateFilterMinutes: number = 0)
           dynamicPricingEnabled: isDynamic,
           calculatedMarkup: ev.calculatedMarkup ?? 15,
           pricingStrategy: ev.pricingStrategy || 'dynamic',
+          roiFloor: ev.roiFloor ?? null,
         });
       }
       console.log(`[CSV] Pre-fetched details for ${eventDetailsMap.size} events`);
+
+      // Pre-compute section-level sell-through from recent orders (last 30 days)
+      // Key: "mapping_id|section" → order count
+      const sectionOrderCounts = new Map<string, number>();
+      try {
+        const thirtyDaysAgo = new Date(Date.now() - 30 * 86400000);
+        const sectionOrders = await Order.aggregate([
+          { $match: { pos_event_id: { $in: eventMappingIds }, order_date: { $gte: thirtyDaysAgo }, status: { $in: ['confirmed', 'confirmed_delay', 'delivered', 'invoiced', 'pending'] } } },
+          { $group: { _id: { event: '$pos_event_id', section: '$section' }, count: { $sum: 1 } } },
+        ]);
+        for (const row of sectionOrders) {
+          if (row._id.event && row._id.section) {
+            sectionOrderCounts.set(`${row._id.event}|${row._id.section}`, row.count);
+          }
+        }
+        console.log(`[CSV] Section sell-through: ${sectionOrderCounts.size} event+section combos with orders`);
+      } catch (err) {
+        console.error('[CSV] Section sell-through pre-computation error:', (err as Error).message);
+      }
+
+      // Pre-compute listing counts per section for sell-through %
+      const sectionListingCounts = new Map<string, number>();
+      try {
+        const sectionListings = await ConsecutiveGroup.aggregate([
+          { $match: { mapping_id: { $in: eventMappingIds } } },
+          { $group: { _id: { mapping_id: '$mapping_id', section: '$inventory.section' }, count: { $sum: 1 } } },
+        ]);
+        for (const row of sectionListings) {
+          if (row._id.mapping_id && row._id.section) {
+            sectionListingCounts.set(`${row._id.mapping_id}|${row._id.section}`, row.count);
+          }
+        }
+      } catch (err) {
+        console.error('[CSV] Section listing count error:', (err as Error).message);
+      }
+
+      // Expose sell-through maps to processBatch via module scope
+      _sectionOrderCounts = sectionOrderCounts;
+      _sectionListingCounts = sectionListingCounts;
 
     // Projection — no longer need event_std_adj etc from $lookup
     const projection = {
@@ -441,6 +487,7 @@ export async function generateInventoryCsv(eventUpdateFilterMinutes: number = 0)
       'inventory.stubhubSectionLowest': 1,
       'inventory.stubhubAtFloor': 1,
       'inventory.stubhubPricedAt': 1,
+      'inventory.stubhubSectionAvg': 1,
     };
 
       // Chunked processing: first get all _ids (fast, no $lookup), then process
@@ -500,6 +547,7 @@ export async function generateInventoryCsv(eventUpdateFilterMinutes: number = 0)
             doc.event_use_stubhub_pricing = evData?.useStubHubPricing ?? false;
             doc.event_availability_pct = evData?.availabilityPct ?? null;
             doc.event_pricing_strategy = evData?.pricingStrategy ?? 'dynamic';
+            doc.event_roi_floor = evData?.roiFloor ?? null;
             enrichedDocs.push(doc);
           }
           if (enrichedDocs.length > 0) {
@@ -621,6 +669,7 @@ interface ConsecutiveGroupDocument {
     passthrough?: string;
     stubhubSuggestedPrice?: number | null;
     stubhubSectionLowest?: number | null;
+    stubhubSectionAvg?: number | null;
     stubhubAtFloor?: boolean;
     stubhubPricedAt?: Date | string | null;
   };
@@ -636,6 +685,7 @@ interface ConsecutiveGroupDocument {
   event_use_stubhub_pricing?: boolean;
   event_availability_pct?: number | null;
   event_pricing_strategy?: string;
+  event_roi_floor?: number | null;
   seats?: Array<{ number: string | number }>;
 }
 
@@ -761,7 +811,7 @@ async function processBatch(batch: ConsecutiveGroupDocument[]): Promise<CsvRow[]
     const rawListPrice = inventory?.listPrice || 0;
     const ticketCost = inventory?.cost || inventory?.face_price || 0;
     const SELL_FEE_FRACTION = 0.08;
-    const MIN_ROI_PCT = 5;
+    const MIN_ROI_PCT = doc.event_roi_floor ?? 5;
     let adjustedListPrice: number;
 
     if (pricingStrategy === 'manual') {
@@ -821,6 +871,29 @@ async function processBatch(batch: ConsecutiveGroupDocument[]): Promise<CsvRow[]
           const tiersBelowThreshold = Math.ceil((SCARCITY_THRESHOLD_PCT - availPct) / SCARCITY_STEP_SIZE);
           const scarcityBoostPct = tiersBelowThreshold * SCARCITY_STEP_SIZE;
           adjustedListPrice *= (1 + scarcityBoostPct / 100);
+        }
+
+        // 4. Section sell-through adjustment: hot sections get bumped, cold sections get discounted
+        const sellThroughKey = `${eventId}|${sec}`;
+        const sectionOrders = _sectionOrderCounts.get(sellThroughKey) || 0;
+        const sectionListings = _sectionListingCounts.get(sellThroughKey) || 0;
+        if (sectionListings > 0) {
+          const sellThroughPct = (sectionOrders / sectionListings) * 100;
+          // Apply as a multiplicative adjustment: -2% to +3% of list price
+          if (sellThroughPct >= 80) adjustedListPrice *= 1.03;      // hot section
+          else if (sellThroughPct >= 50) adjustedListPrice *= 1.01;  // selling well
+          else if (sellThroughPct < 5 && sectionOrders === 0) adjustedListPrice *= 0.98; // dead section
+        }
+
+        // 5. StubHub soft price cap: prevent overpricing vs market
+        // If StubHub data is available (but not in full StubHub pricing mode),
+        // cap our price at StubHub section avg + 10% to stay competitive
+        const shAvg = inventory?.stubhubSectionAvg;
+        if (shAvg != null && shAvg > 0) {
+          const maxPrice = shAvg * 1.10;
+          if (adjustedListPrice > maxPrice) {
+            adjustedListPrice = maxPrice;
+          }
         }
       }
     }

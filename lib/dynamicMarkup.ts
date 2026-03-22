@@ -20,8 +20,8 @@
 
 export const SELL_FEE_PCT = 8;
 const BASE_ROI = 15;   // Start at ceiling — best case
-const ROI_CEILING = 15;
-const ROI_FLOOR = 5;
+export const DEFAULT_ROI_CEILING = 15;
+export const DEFAULT_ROI_FLOOR = 5;
 
 // ── Factor 1: Availability ──────────────────────────────────────────
 // High availability = oversupplied, harder to sell → discount
@@ -58,17 +58,34 @@ export function getTimeToEventAdjustment(eventDateTime: Date | string | null | u
   return 0;                         // 30+ days — no pressure
 }
 
+// ── Factor 4: Section Sell-Through ─────────────────────────────────
+// Sections that sell well get higher markup; sections that don't get lower.
+// sellThroughPct = orders / listings × 100 for this section.
+export function getSectionSellThroughAdjustment(sellThroughPct: number | null | undefined): number {
+  if (sellThroughPct == null) return 0;     // no data — no adjustment
+  if (sellThroughPct >= 80) return 3;       // hot section — charge more
+  if (sellThroughPct >= 50) return 1;       // selling well — slight bump
+  if (sellThroughPct >= 20) return 0;       // normal range
+  if (sellThroughPct >= 5) return -1;       // slow section — discount slightly
+  return -2;                                 // dead section — bigger discount
+}
+
 // ── Composite calculation ───────────────────────────────────────────
 export interface MarkupFactors {
   base: number;
   availability: number;
   orderVelocity: number;
   timeToEvent: number;
+  sectionSellThrough?: number;
 }
 
-export function calculateDynamicMarkup(factors: MarkupFactors): number {
-  const raw = factors.base + factors.availability + factors.orderVelocity + factors.timeToEvent;
-  return Math.min(ROI_CEILING, Math.max(ROI_FLOOR, raw));
+export function calculateDynamicMarkup(
+  factors: MarkupFactors,
+  roiCeiling: number = DEFAULT_ROI_CEILING,
+  roiFloor: number = DEFAULT_ROI_FLOOR,
+): number {
+  const raw = factors.base + factors.availability + factors.orderVelocity + factors.timeToEvent + (factors.sectionSellThrough ?? 0);
+  return Math.min(roiCeiling, Math.max(roiFloor, raw));
 }
 
 // ── Price conversion ────────────────────────────────────────────────
@@ -83,12 +100,16 @@ export function computeFullMarkup(params: {
   availabilityPct: number | null | undefined;
   lastOrderDate: Date | null | undefined;
   eventDateTime: Date | string | null | undefined;
+  roiCeiling?: number | null;
+  roiFloor?: number | null;
 }): { markup: number; factors: MarkupFactors } {
+  const ceiling = params.roiCeiling ?? DEFAULT_ROI_CEILING;
+  const floor = params.roiFloor ?? DEFAULT_ROI_FLOOR;
   const factors: MarkupFactors = {
     base: BASE_ROI,
     availability: getAvailabilityAdjustment(params.availabilityPct),
     orderVelocity: getOrderVelocityAdjustment(params.lastOrderDate),
     timeToEvent: getTimeToEventAdjustment(params.eventDateTime),
   };
-  return { markup: calculateDynamicMarkup(factors), factors };
+  return { markup: calculateDynamicMarkup(factors, ceiling, floor), factors };
 }

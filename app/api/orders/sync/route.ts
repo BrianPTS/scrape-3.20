@@ -188,6 +188,38 @@ async function snapshotInventory(
   }
 }
 
+/**
+ * Look up ticket cost from ConsecutiveGroup via pos_inventory_id.
+ * Returns cost snapshot or null if not found.
+ */
+async function snapshotCost(
+  posInventoryId: string
+): Promise<Record<string, any> | null> {
+  try {
+    if (!posInventoryId) return null;
+    const invId = parseInt(posInventoryId, 10);
+    if (isNaN(invId)) return null;
+
+    const group = await ConsecutiveGroup.findOne(
+      { 'inventory.inventoryId': invId },
+      { 'inventory.cost': 1, 'inventory.taxed_cost': 1, 'inventory.face_price': 1, 'inventory.listPrice': 1 }
+    ).lean() as any;
+
+    if (!group?.inventory) return null;
+
+    return {
+      unitCost: group.inventory.cost ?? null,
+      taxedCost: group.inventory.taxed_cost ?? null,
+      facePrice: group.inventory.face_price ?? null,
+      listPriceAtOrder: group.inventory.listPrice ?? null,
+      snapshotAt: new Date(),
+    };
+  } catch (err) {
+    console.error('[cost-snapshot] Error:', (err as Error).message);
+    return null;
+  }
+}
+
 function normalizePurchaseName(s: string): string {
   return s.toLowerCase().trim()
     .replace(/[^a-z0-9 ]/g, '')
@@ -599,6 +631,37 @@ export async function GET(request: NextRequest) {
         }
       } catch (err) {
         console.error('[sync] inventory snapshot error:', (err as Error).message);
+      }
+
+      // Snapshot cost data for new orders that have a pos_inventory_id
+      try {
+        const ordersForCost = await Order.find(
+          { order_id: { $in: newOrderIds }, pos_inventory_id: { $nin: [null, ''] }, 'costSnapshot.snapshotAt': null },
+          { pos_inventory_id: 1 }
+        ).lean();
+
+        if (ordersForCost.length > 0) {
+          const costOps: any[] = [];
+          await Promise.all(
+            ordersForCost.map(async (o: any) => {
+              const cost = await snapshotCost(o.pos_inventory_id);
+              if (cost) {
+                costOps.push({
+                  updateOne: {
+                    filter: { _id: o._id },
+                    update: { $set: { costSnapshot: cost } },
+                  },
+                });
+              }
+            })
+          );
+          if (costOps.length > 0) {
+            await Order.bulkWrite(costOps);
+          }
+          console.log(`[sync] cost snapshots: ${costOps.length}/${ordersForCost.length} orders`);
+        }
+      } catch (err) {
+        console.error('[sync] cost snapshot error:', (err as Error).message);
       }
 
       // Stamp pricingStrategy from Event onto new orders

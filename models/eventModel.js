@@ -105,6 +105,15 @@ const eventSchema = new mongoose.Schema(
       type: Boolean,
       default: true,
     },
+    // Per-event ROI band (overrides global defaults of 5%–15%)
+    roiFloor: {
+      type: Number,
+      default: null, // null = use global default (5%)
+    },
+    roiCeiling: {
+      type: Number,
+      default: null, // null = use global default (15%)
+    },
     calculatedMarkup: {
       type: Number,
       default: 15, // Default 15% target ROI (was 30% raw markup)

@@ -401,6 +401,8 @@ export default async function EventDetailsPage({ params }: EventDetailsProps) {
             markupFactors={event.markupFactors}
             lastMarkupCalcAt={event.lastMarkupCalcAt}
             initialPricingStrategy={event.pricingStrategy || 'dynamic'}
+            initialRoiFloor={event.roiFloor ?? null}
+            initialRoiCeiling={event.roiCeiling ?? null}
           />
         </div>
       </div>

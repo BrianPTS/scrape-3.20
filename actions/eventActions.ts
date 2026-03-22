@@ -514,3 +514,36 @@ export async function updateAllEvents(status: boolean){
     }
   }
 }
+
+/**
+ * Bulk-assign pricing strategy to multiple events by ID.
+ * Also sets dynamicPricingEnabled accordingly.
+ */
+export async function bulkSetPricingStrategy(
+  eventIds: string[],
+  strategy: 'dynamic' | 'static' | 'manual'
+) {
+  await dbConnect();
+  try {
+    const update: Record<string, any> = {
+      pricingStrategy: strategy,
+      dynamicPricingEnabled: strategy === 'dynamic',
+    };
+
+    const result = await Event.updateMany(
+      { _id: { $in: eventIds } },
+      { $set: update }
+    );
+
+    return {
+      success: true,
+      modifiedCount: result.modifiedCount,
+    };
+  } catch (error) {
+    console.error('Error bulk-setting pricing strategy:', error);
+    return {
+      success: false,
+      error: (error as Error).message || 'Failed to update events',
+    };
+  }
+}

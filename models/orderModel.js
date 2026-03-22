@@ -64,6 +64,15 @@ const orderSchema = new mongoose.Schema(
       default: null,
     },
 
+    // Cost snapshot at order time (linked via pos_inventory_id → ConsecutiveGroup.inventory.inventoryId)
+    costSnapshot: {
+      unitCost: { type: Number, default: null },        // per-ticket cost
+      taxedCost: { type: Number, default: null },       // cost incl. tax
+      facePrice: { type: Number, default: null },       // face value
+      listPriceAtOrder: { type: Number, default: null }, // what we listed it for
+      snapshotAt: { type: Date, default: null },
+    },
+
     // Inventory snapshot at order time
     inventorySnapshot: {
       eventAvailabilityPct: { type: Number, default: null },   // Event-level availability %

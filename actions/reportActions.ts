@@ -4,6 +4,7 @@ import { unstable_noStore as noStore } from 'next/cache';
 import dbConnect from '@/lib/dbConnect';
 import { Order } from '@/models/orderModel';
 import { Event } from '@/models/eventModel';
+import { ConsecutiveGroup } from '@/models/seatModel';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -36,6 +37,11 @@ export interface StrategySummary {
   totalTickets: number;
   avgUnitPrice: number;
   avgProfit: number | null;
+  totalProfit: number | null;
+  totalCost: number | null;
+  avgROIPct: number | null;
+  activeListings: number;
+  sellThroughPct: number | null;
 }
 
 export interface ReportData {
@@ -83,6 +89,7 @@ export async function getReportData(
   const rawOrders = await Order.find(query)
     .sort({ order_date: -1 })
     .limit(5000)
+    .select({ costSnapshot: 1, inventorySnapshot: 1, order_id: 1, event_name: 1, venue: 1, occurs_at: 1, section: 1, row: 1, low_seat: 1, high_seat: 1, quantity: 1, unit_price: 1, total: 1, marketplace: 1, status: 1, order_date: 1, pricingStrategy: 1, delivery: 1, portalEventId: 1, pos_event_id: 1 })
     .lean();
 
   // Look up event cost data for profit calculation
@@ -112,9 +119,9 @@ export async function getReportData(
     const total = o.total || (unitPrice * qty);
     // Revenue after platform sell fee
     const netRevenue = total * (1 - SELL_FEE_PCT);
-    // We don't have per-order cost in the order model yet, so profit is estimated
-    // For now, cost = null means we can't compute profit
-    const cost: number | null = null;
+    // Cost from costSnapshot (linked via pos_inventory_id → ConsecutiveGroup)
+    const unitCost = o.costSnapshot?.unitCost ?? o.costSnapshot?.taxedCost ?? null;
+    const cost: number | null = unitCost !== null ? unitCost * qty : null;
     const profit = cost !== null ? netRevenue - cost : null;
     const profitPct = cost !== null && cost > 0 ? ((netRevenue - cost) / cost) * 100 : null;
 
@@ -142,14 +149,20 @@ export async function getReportData(
   });
 
   // Build strategy summaries
-  const stratMap = new Map<string, { count: number; revenue: number; tickets: number; prices: number[] }>();
+  const stratMap = new Map<string, { count: number; revenue: number; tickets: number; prices: number[]; totalCost: number; totalProfit: number; profitOrders: number; roiPcts: number[] }>();
   for (const o of orders) {
     const s = o.pricingStrategy || 'unknown';
-    const entry = stratMap.get(s) || { count: 0, revenue: 0, tickets: 0, prices: [] };
+    const entry = stratMap.get(s) || { count: 0, revenue: 0, tickets: 0, prices: [], totalCost: 0, totalProfit: 0, profitOrders: 0, roiPcts: [] };
     entry.count++;
     entry.revenue += o.total;
     entry.tickets += o.quantity;
     entry.prices.push(o.unit_price);
+    if (o.cost !== null && o.profit !== null) {
+      entry.totalCost += o.cost;
+      entry.totalProfit += o.profit;
+      entry.profitOrders++;
+      if (o.profitPct !== null) entry.roiPcts.push(o.profitPct);
+    }
     stratMap.set(s, entry);
   }
 
@@ -161,13 +174,55 @@ export async function getReportData(
     avgUnitPrice: data.prices.length > 0
       ? Math.round((data.prices.reduce((a, b) => a + b, 0) / data.prices.length) * 100) / 100
       : 0,
-    avgProfit: null, // Will be available once cost tracking is added
+    avgProfit: data.profitOrders > 0
+      ? Math.round((data.totalProfit / data.profitOrders) * 100) / 100
+      : null,
+    totalProfit: data.profitOrders > 0 ? Math.round(data.totalProfit * 100) / 100 : null,
+    totalCost: data.profitOrders > 0 ? Math.round(data.totalCost * 100) / 100 : null,
+    avgROIPct: data.roiPcts.length > 0
+      ? Math.round((data.roiPcts.reduce((a, b) => a + b, 0) / data.roiPcts.length) * 100) / 100
+      : null,
+    activeListings: 0,
+    sellThroughPct: null,
   }));
 
   // Determine actual date range from results
   const dates = orders.filter(o => o.order_date).map(o => new Date(o.order_date!).getTime());
   const from = dates.length > 0 ? new Date(Math.min(...dates)).toISOString().slice(0, 10) : '';
   const to = dates.length > 0 ? new Date(Math.max(...dates)).toISOString().slice(0, 10) : '';
+
+  // Sell-through: count active listings per strategy
+  // Group events by pricingStrategy, then count ConsecutiveGroup rows per strategy
+  const activeEvents = await Event.find(
+    { Skip_Scraping: { $ne: true } },
+    { mapping_id: 1, pricingStrategy: 1 }
+  ).lean();
+
+  const strategyListingMap = new Map<string, number>();
+  if (activeEvents.length > 0) {
+    const eventsByStrategy = new Map<string, string[]>();
+    for (const ev of activeEvents as any[]) {
+      const s = ev.pricingStrategy || 'dynamic';
+      if (!eventsByStrategy.has(s)) eventsByStrategy.set(s, []);
+      if (ev.mapping_id) eventsByStrategy.get(s)!.push(ev.mapping_id);
+    }
+
+    for (const [strategy, mappingIds] of eventsByStrategy) {
+      if (mappingIds.length > 0) {
+        const count = await ConsecutiveGroup.countDocuments({ mapping_id: { $in: mappingIds } });
+        strategyListingMap.set(strategy, count);
+      }
+    }
+  }
+
+  // Attach sell-through to summaries
+  for (const s of summaries) {
+    const listings = strategyListingMap.get(s.strategy) || 0;
+    (s as any).activeListings = listings;
+    (s as any).sellThroughPct = listings > 0
+      ? Math.round((s.orderCount / listings) * 10000) / 100
+      : null;
+  }
 
   return JSON.parse(JSON.stringify({
     orders,

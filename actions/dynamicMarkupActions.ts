@@ -63,6 +63,8 @@ export async function runDynamicMarkupCalc() {
         Availability_Percentage: 1,
         calculatedMarkup: 1,
         markupFactors: 1,
+        roiFloor: 1,
+        roiCeiling: 1,
       },
     ).lean();
 
@@ -105,6 +107,8 @@ export async function runDynamicMarkupCalc() {
           availabilityPct: event.Availability_Percentage,
           lastOrderDate,
           eventDateTime: event.Event_DateTime,
+          roiCeiling: event.roiCeiling,
+          roiFloor: event.roiFloor,
         });
 
         // Only update if markup actually changed

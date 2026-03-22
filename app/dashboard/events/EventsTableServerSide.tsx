@@ -10,6 +10,7 @@ import EventsTableControls from './EventsTableControls';
 import EventTableActions from './EventTableActions';
 import PaginationControls from './PaginationControls';
 import TimeAgo from './TimeAgo';
+import BulkStrategyPanel from './BulkStrategyPanel';
 
 interface EventData {
   _id: string;
@@ -35,6 +36,7 @@ interface EventData {
   Venue_Capacity?: number;
   dynamicPricingEnabled?: boolean;
   calculatedMarkup?: number;
+  pricingStrategy?: string;
 }
 
 interface ResolvedSearchParams {
@@ -207,6 +209,11 @@ export default async function EventsTableServerSide({ searchParams }: PageProps)
         filters={filters}
         activeCount={counts.active}
         grandTotal={counts.total}
+      />
+
+      {/* Bulk Strategy A/B Assignment */}
+      <BulkStrategyPanel
+        events={events.map(e => ({ _id: e._id, Event_Name: e.Event_Name, pricingStrategy: e.pricingStrategy }))}
       />
 
       {/* Error state */}

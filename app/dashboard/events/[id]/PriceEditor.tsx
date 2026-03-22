@@ -22,6 +22,8 @@ interface Props {
   };
   lastMarkupCalcAt?: string;
   initialPricingStrategy?: PricingStrategy;
+  initialRoiFloor?: number | null;
+  initialRoiCeiling?: number | null;
 }
 
 const PRESETS = [0, 5, 10, 15, 20, 25, 30, 40, 50];
@@ -83,6 +85,7 @@ export default function PriceEditor({
   eventId, initialPct, initialStandardAdj = 0, initialResaleAdj = 0,
   dynamicPricingEnabled: initialDynamic = true, calculatedMarkup, markupFactors, lastMarkupCalcAt,
   initialPricingStrategy = 'dynamic',
+  initialRoiFloor = null, initialRoiCeiling = null,
 }: Props) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
@@ -92,10 +95,12 @@ export default function PriceEditor({
   const [resaleAdj, setResaleAdj] = useState(initialResaleAdj);
   const [dynamicEnabled, setDynamicEnabled] = useState(initialDynamic);
   const [strategy, setStrategy] = useState<PricingStrategy>(initialPricingStrategy);
+  const [roiFloor, setRoiFloor] = useState<number | null>(initialRoiFloor);
+  const [roiCeiling, setRoiCeiling] = useState<number | null>(initialRoiCeiling);
   const [saveState, setSaveState] = useState<SaveState>('idle');
   const successTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const isDirty = value !== initialPct || stdAdj !== initialStandardAdj || resaleAdj !== initialResaleAdj || dynamicEnabled !== initialDynamic || strategy !== initialPricingStrategy;
+  const isDirty = value !== initialPct || stdAdj !== initialStandardAdj || resaleAdj !== initialResaleAdj || dynamicEnabled !== initialDynamic || strategy !== initialPricingStrategy || roiFloor !== initialRoiFloor || roiCeiling !== initialRoiCeiling;
 
   useEffect(() => { setInputVal(String(value)); }, [value]);
 
@@ -119,6 +124,8 @@ export default function PriceEditor({
           resaleMarkupAdjustment: resaleAdj,
           dynamicPricingEnabled: dynamicEnabled,
           pricingStrategy: strategy,
+          roiFloor: roiFloor,
+          roiCeiling: roiCeiling,
         } as Parameters<typeof updateEvent>[1], false);
         setSaveState('saved');
         router.refresh();
@@ -221,6 +228,40 @@ export default function PriceEditor({
             {lastMarkupCalcAt && (
               <p className="text-[9px] text-gray-400 pt-1">Last calculated: {new Date(lastMarkupCalcAt).toLocaleString()}</p>
             )}
+          </div>
+        )}
+
+        {/* --- ROI Band (per-event override) --- */}
+        {strategy === 'dynamic' && (
+          <div className="bg-indigo-50 rounded-xl p-3.5 space-y-2">
+            <p className="text-[10px] font-bold text-indigo-600 uppercase tracking-widest">ROI Band</p>
+            <p className="text-[10px] text-gray-500">Override global defaults (Floor: 5%, Ceiling: 15%). Leave blank for defaults.</p>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="text-[10px] font-semibold text-gray-500">Floor %</label>
+                <input
+                  type="number"
+                  min={0}
+                  max={100}
+                  placeholder="5"
+                  value={roiFloor ?? ''}
+                  onChange={e => { setRoiFloor(e.target.value === '' ? null : Number(e.target.value)); setSaveState('idle'); }}
+                  className="w-full mt-0.5 px-2.5 py-1.5 border border-indigo-200 rounded-lg text-xs font-bold text-center bg-white focus:ring-2 focus:ring-indigo-400 outline-none [appearance:textfield]"
+                />
+              </div>
+              <div>
+                <label className="text-[10px] font-semibold text-gray-500">Ceiling %</label>
+                <input
+                  type="number"
+                  min={0}
+                  max={100}
+                  placeholder="15"
+                  value={roiCeiling ?? ''}
+                  onChange={e => { setRoiCeiling(e.target.value === '' ? null : Number(e.target.value)); setSaveState('idle'); }}
+                  className="w-full mt-0.5 px-2.5 py-1.5 border border-indigo-200 rounded-lg text-xs font-bold text-center bg-white focus:ring-2 focus:ring-indigo-400 outline-none [appearance:textfield]"
+                />
+              </div>
+            </div>
           </div>
         )}
 
