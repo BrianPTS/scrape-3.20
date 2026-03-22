@@ -24,13 +24,15 @@ const ROI_CEILING = 15;
 const ROI_FLOOR = 5;
 
 // ── Factor 1: Availability ──────────────────────────────────────────
-// High availability = lots of competing inventory → reduce ROI to compete
-// Low availability = scarce → stay at ceiling
+// High availability = lots of seats, less pressure → no discount needed
+// Low availability = scarce, buyers have fewer options → charge more
 export function getAvailabilityAdjustment(availabilityPct: number | null | undefined): number {
   if (availabilityPct == null) return 0;
-  if (availabilityPct >= 80) return -2;  // flooded market
-  if (availabilityPct >= 60) return -1;  // well-supplied
-  return 0;                               // < 60% — hold price
+  if (availabilityPct >= 80) return 0;   // plenty of seats — hold at base
+  if (availabilityPct >= 60) return 0;   // still comfortable
+  if (availabilityPct >= 40) return 1;   // thinning out — bump price
+  if (availabilityPct >= 20) return 2;   // scarce — charge more
+  return 2;                               // < 20% — max scarcity premium
 }
 
 // ── Factor 2: Order Velocity ────────────────────────────────────────
