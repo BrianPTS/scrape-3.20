@@ -28,7 +28,7 @@ const ROI_FLOOR = 5;
 // Low availability = scarce, buyers have fewer options → charge more
 export function getAvailabilityAdjustment(availabilityPct: number | null | undefined): number {
   if (availabilityPct == null) return 0;
-  if (availabilityPct >= 70) return -2;  // oversupplied — discount to compete
+  if (availabilityPct >= 70) return -10; // oversupplied — force to 5% ROI floor
   if (availabilityPct >= 40) return 0;   // normal range — hold at base
   if (availabilityPct >= 20) return 1;   // thinning out — bump price
   return 2;                               // < 20% — scarce, charge more
