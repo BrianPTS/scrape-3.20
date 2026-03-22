@@ -24,15 +24,14 @@ const ROI_CEILING = 15;
 const ROI_FLOOR = 5;
 
 // ── Factor 1: Availability ──────────────────────────────────────────
-// High availability = lots of seats, less pressure → no discount needed
+// High availability = oversupplied, harder to sell → discount
 // Low availability = scarce, buyers have fewer options → charge more
 export function getAvailabilityAdjustment(availabilityPct: number | null | undefined): number {
   if (availabilityPct == null) return 0;
-  if (availabilityPct >= 80) return 0;   // plenty of seats — hold at base
-  if (availabilityPct >= 60) return 0;   // still comfortable
-  if (availabilityPct >= 40) return 1;   // thinning out — bump price
-  if (availabilityPct >= 20) return 2;   // scarce — charge more
-  return 2;                               // < 20% — max scarcity premium
+  if (availabilityPct >= 70) return -2;  // oversupplied — discount to compete
+  if (availabilityPct >= 40) return 0;   // normal range — hold at base
+  if (availabilityPct >= 20) return 1;   // thinning out — bump price
+  return 2;                               // < 20% — scarce, charge more
 }
 
 // ── Factor 2: Order Velocity ────────────────────────────────────────
