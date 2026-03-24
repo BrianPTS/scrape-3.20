@@ -797,9 +797,10 @@ async function processBatch(batch: ConsecutiveGroupDocument[]): Promise<CsvRow[]
   }
 
   return batch.filter(doc => {
-    // Global filter: exclude any listing whose section contains "table" (case-insensitive)
-    const section = doc.inventory?.section || '';
-    if (section.toLowerCase().includes('table')) return false;
+    // Global filter: exclude any listing where section or description/notes contain "table" (case-insensitive)
+    const section = (doc.inventory?.section || '').toLowerCase();
+    const publicNotes = (doc.inventory?.publicNotes || '').toLowerCase();
+    if (section.includes('table') || publicNotes.includes('table')) return false;
     return true;
   }).map(doc => {
     const inventory = doc.inventory;
