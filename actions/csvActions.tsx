@@ -796,7 +796,12 @@ async function processBatch(batch: ConsecutiveGroupDocument[]): Promise<CsvRow[]
     sectionListings.get(key)!.push({ rowRank: rowRk, cost, qty });
   }
 
-  return batch.map(doc => {
+  return batch.filter(doc => {
+    // Global filter: exclude any listing whose section contains "table" (case-insensitive)
+    const section = doc.inventory?.section || '';
+    if (section.toLowerCase().includes('table')) return false;
+    return true;
+  }).map(doc => {
     const inventory = doc.inventory;
     const isResale = inventory?.splitType !== 'NEVERLEAVEONE';
 
