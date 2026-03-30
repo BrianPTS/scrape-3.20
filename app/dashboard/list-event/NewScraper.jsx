@@ -42,6 +42,7 @@ const EventFormContent = ({ mode, onCancel, onSuccess, initialData }) => {
   const extractEventIdFromUrl = (url) => {
     try {
       const parsed = new URL(url);
+      // Ticketmaster
       if (
         /ticketmaster\.(com|ca|co\.uk)$/i.test(parsed.hostname) &&
         parsed.pathname.includes("/event/")
@@ -53,16 +54,29 @@ const EventFormContent = ({ mode, onCancel, onSuccess, initialData }) => {
           return pathParts[eventIdIndex];
         }
       }
+      // tickets.com — event ID in hash: #/event/14478/seatmap/
+      if (/tickets\.com$/i.test(parsed.hostname)) {
+        const hashMatch = (parsed.hash || '').match(/#\/event\/(\d+)/);
+        if (hashMatch) return `TC-${hashMatch[1]}`;
+      }
       return "";
     } catch {
       return "";
     }
   };
 
-  // Helper function to extract event data from Ticketmaster URL
+  // Helper function to extract event data from Ticketmaster or tickets.com URL
   const extractEventDataFromUrl = (url) => {
     try {
       const parsed = new URL(url);
+      // tickets.com — can only extract event ID from hash, user fills in rest
+      if (/tickets\.com$/i.test(parsed.hostname)) {
+        const hashMatch = (parsed.hash || '').match(/#\/event\/(\d+)/);
+        if (hashMatch) {
+          return { eventId: `TC-${hashMatch[1]}`, eventName: '', venue: '', eventDate: '', inHandDate: '' };
+        }
+        return null;
+      }
       if (
         /ticketmaster\.(com|ca|co\.uk)$/i.test(parsed.hostname) &&
         parsed.pathname.includes("/event/")
@@ -198,6 +212,12 @@ const EventFormContent = ({ mode, onCancel, onSuccess, initialData }) => {
           form.actions.updateField('Event_ID', extractedId);
         }
       }
+      // Auto-detect source from URL
+      if (/tickets\.com/i.test(value)) {
+        form.actions.updateField('source', 'ticketscom');
+      } else {
+        form.actions.updateField('source', 'ticketmaster');
+      }
     } else if (name === "mapping_id") {
       // Auto-extract production ID from pasted Vivid Seats URLs
       try {
@@ -253,6 +273,7 @@ const EventFormContent = ({ mode, onCancel, onSuccess, initialData }) => {
         priceIncreasePercentage: form.data.Percentage_Increase_ListCost.value,
         standardMarkupAdjustment: form.data.standardMarkupAdjustment.value,
         resaleMarkupAdjustment: form.data.resaleMarkupAdjustment.value,
+        source: form.data.source.value,
       };
 
       let result;

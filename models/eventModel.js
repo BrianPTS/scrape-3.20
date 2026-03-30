@@ -25,6 +25,11 @@ const eventSchema = new mongoose.Schema(
       type: String,
       required: true,
     },
+    source: {
+      type: String,
+      enum: ['ticketmaster', 'ticketscom'],
+      default: 'ticketmaster',
+    },
     Zone: {
       type: String,
       default: "none",

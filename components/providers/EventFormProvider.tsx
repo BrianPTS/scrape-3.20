@@ -28,6 +28,7 @@ interface FormData {
   Percentage_Increase_ListCost: FormField;
   standardMarkupAdjustment: FormField;
   resaleMarkupAdjustment: FormField;
+  source: FormField;
 }
 
 interface FormContextInterface {
@@ -66,11 +67,14 @@ const validationRules: {
   Percentage_Increase_ListCost: (value: number) => boolean;
   standardMarkupAdjustment: (value: number) => boolean;
   resaleMarkupAdjustment: (value: number) => boolean;
+  source: (value: string) => boolean;
 } = {
   URL: (value: string) => {
     try {
       const parsed = new URL(value);
-      return /ticketmaster\.(com|ca|co\.uk)$/i.test(parsed.hostname) && parsed.pathname.includes("/event/");
+      const isTM = /ticketmaster\.(com|ca|co\.uk)$/i.test(parsed.hostname) && parsed.pathname.includes("/event/");
+      const isTC = /tickets\.com$/i.test(parsed.hostname);
+      return isTM || isTC;
     } catch {
       return false;
     }
@@ -88,10 +92,11 @@ const validationRules: {
   Percentage_Increase_ListCost: (value: number) => value >= 0,
   standardMarkupAdjustment: () => true,
   resaleMarkupAdjustment: () => true,
+  source: () => true,
 };
 
 const errorMessages = {
-  URL: "Please enter a valid Ticketmaster event URL",
+  URL: "Please enter a valid Ticketmaster or tickets.com event URL",
   Event_ID: "Please enter a valid event ID",
   Event_Name: "Name must be at least 3 characters long",
   Event_DateTime: "Please select an event date and time",
@@ -105,6 +110,7 @@ const errorMessages = {
   Percentage_Increase_ListCost: "Please enter a valid percentage (0 or greater)",
   standardMarkupAdjustment: "",
   resaleMarkupAdjustment: "",
+  source: "",
 };
 
 export function EventFormProvider({ children, initialData }: { 
@@ -138,6 +144,7 @@ export function EventFormProvider({ children, initialData }: {
       Percentage_Increase_ListCost: { value: initialData?.priceIncreasePercentage || 0, status: 'untouched' },
       standardMarkupAdjustment: { value: initialData?.standardMarkupAdjustment ?? 0, status: 'untouched' },
       resaleMarkupAdjustment: { value: initialData?.resaleMarkupAdjustment ?? 0, status: 'untouched' },
+      source: { value: initialData?.source || 'ticketmaster', status: 'untouched' },
     };
   };
 
