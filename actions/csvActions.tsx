@@ -689,12 +689,17 @@ interface ConsecutiveGroupDocument {
 
 // Function to determine split configuration based on ticket type and quantity
 function calculateSplitConfiguration(quantity: number, splitType?: string): {
-  finalSplitType: CsvRow['split_type']; 
-  customSplit: string; 
+  finalSplitType: CsvRow['split_type'];
+  customSplit: string;
 } {
+  // NOSPLIT: offer requires purchasing all tickets together (e.g. "must purchase all 4")
+  if (splitType === 'NOSPLIT') {
+    return { finalSplitType: 'CUSTOM', customSplit: String(quantity) };
+  }
+
   // If splitType is "DEFAULT", it's a resale ticket
   const isResale = splitType === 'DEFAULT';
-  
+
   if (isResale) {
     // RESALE logic
     
