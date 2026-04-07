@@ -824,9 +824,8 @@ async function processBatch(batch: ConsecutiveGroupDocument[]): Promise<CsvRow[]
   }
 
   return batch.filter(doc => {
-    // Exclude Rhode Island events — venue_name ends with state code (e.g. ", RI" or " RI")
-    const venueName = (doc.venue_name || '').trim().toUpperCase();
-    if (venueName.endsWith(' RI') || venueName.endsWith(',RI')) return false;
+    // Exclude Rhode Island events — venue_name ends with ,RI or , RI (case-insensitive)
+    if (/,\s*RI$/i.test((doc.venue_name || '').trim())) return false;
 
     // Global filter: exclude any listing whose section contains "table" (case-insensitive)
     const section = (doc.inventory?.section || '').toLowerCase();
