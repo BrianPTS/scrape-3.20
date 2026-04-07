@@ -38,7 +38,7 @@ interface FeatureFlags {
 const DEFAULT_FLAGS: FeatureFlags = {
   events: 'enabled', inventory: 'enabled', exclusionRules: 'enabled', importEvents: 'enabled',
   addEvent: 'enabled', orders: 'enabled', exportCsv: 'enabled',
-  marketIntelligence: 'enabled', purchaseAccounts: 'enabled', proxies: 'disabled',
+  marketIntelligence: 'enabled', purchaseAccounts: 'enabled', proxies: 'enabled',
 };
 
 /** Normalize legacy booleans from DB */
@@ -156,6 +156,12 @@ const DashboardLayout = ({ children }: { children: React.ReactNode }) => {
       label: 'Export CSV',
       icon: <Download className="w-5 h-5" />,
       flagKey: 'exportCsv' as keyof FeatureFlags,
+    },
+    {
+      path: '/dashboard/proxies',
+      label: 'Proxies',
+      icon: <SignalHigh className="w-5 h-5" />,
+      flagKey: 'proxies' as keyof FeatureFlags,
     },
   ];
 

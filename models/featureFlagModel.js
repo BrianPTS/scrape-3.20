@@ -29,7 +29,7 @@ const featureFlagSchema = new mongoose.Schema(
 
     // Other features
     autoDelete: flagType,
-    proxies: flagTypeOff,
+    proxies: flagType,
   },
   {
     timestamps: true,
