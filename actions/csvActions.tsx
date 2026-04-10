@@ -837,7 +837,7 @@ async function processBatch(batch: ConsecutiveGroupDocument[]): Promise<CsvRow[]
 
     // Detect GA/Lawn rows — scraper stores synthetic row names like "GA1", "GA2", etc.
     const row = inventory?.row || '';
-    const isGALawn = /^GA\d*$/i.test(row) || row.toUpperCase() === 'SRO';
+    const isGALawn = /^GA\d*$/i.test(row);
 
     // ── Pricing Strategy Branching ──
     const pricingStrategy = doc.event_pricing_strategy || 'dynamic';
