@@ -36,6 +36,30 @@ const NFL_TEAMS = [
   'Cardinals', 'Rams', '49ers', 'Seahawks',
 ];
 
+// NBA team names for internal_notes tagging (-game, date-limited)
+const NBA_TEAMS = [
+  'Celtics', 'Nets', 'Knicks', '76ers', 'Raptors',
+  'Bulls', 'Cavaliers', 'Pistons', 'Pacers', 'Bucks',
+  'Hawks', 'Hornets', 'Heat', 'Magic', 'Wizards',
+  'Nuggets', 'Timberwolves', 'Thunder', 'Trail Blazers', 'Jazz',
+  'Warriors', 'Clippers', 'Lakers', 'Suns', 'Kings',
+  'Mavericks', 'Rockets', 'Grizzlies', 'Pelicans', 'Spurs',
+];
+
+// NHL team names for internal_notes tagging (-game, date-limited)
+const NHL_TEAMS = [
+  'Bruins', 'Sabres', 'Red Wings', 'Panthers', 'Canadiens',
+  'Senators', 'Lightning', 'Maple Leafs', 'Hurricanes', 'Blue Jackets',
+  'Devils', 'Islanders', 'Rangers', 'Flyers', 'Penguins',
+  'Capitals', 'Blackhawks', 'Avalanche', 'Stars', 'Wild',
+  'Predators', 'Blues', 'Jets', 'Ducks', 'Flames',
+  'Oilers', 'Kings', 'Sharks', 'Kraken', 'Canucks',
+  'Golden Knights', 'Utah Hockey Club',
+];
+
+// NBA/NHL -game tag cutoff date (inclusive)
+const NBA_NHL_GAME_TAG_CUTOFF = new Date('2026-07-01T00:00:00Z');
+
 interface CsvRow {
   inventory_id: number;
   event_name: string;
@@ -987,9 +1011,25 @@ async function processBatch(batch: ConsecutiveGroupDocument[]): Promise<CsvRow[]
       row: inventory?.row || "",
       seats: seatsString,
       barcodes: inventory?.barcodes || "",
-      internal_notes: [...MLB_TEAMS, ...NFL_TEAMS].some(team => (doc.event_name || '').toLowerCase().includes(team.toLowerCase()))
-        ? "-tnow -tmplus -geek"
-        : "-tnow -tmplus",
+      internal_notes: (() => {
+        const eventNameLower = (doc.event_name || '').toLowerCase();
+        const notes = ['-tnow', '-tmplus'];
+
+        // MLB/NFL → -geek
+        if ([...MLB_TEAMS, ...NFL_TEAMS].some(team => eventNameLower.includes(team.toLowerCase()))) {
+          notes.push('-geek');
+        }
+
+        // NBA/NHL → -game (only if event date is before July 1, 2026)
+        const eventDate = doc.event_date ? new Date(doc.event_date) : null;
+        if (eventDate && eventDate < NBA_NHL_GAME_TAG_CUTOFF) {
+          if ([...NBA_TEAMS, ...NHL_TEAMS].some(team => eventNameLower.includes(team.toLowerCase()))) {
+            notes.push('-game');
+          }
+        }
+
+        return notes.join(' ');
+      })(),
       public_notes: publicNotes,
       tags,
       list_price: Number(adjustedListPrice.toFixed(2)),
