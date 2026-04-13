@@ -499,8 +499,10 @@ export async function generateInventoryCsv(eventUpdateFilterMinutes: number = 0)
         console.error('[CSV] Section listing count error:', (err as Error).message);
       }
 
-      // Pre-compute cheapest cost per event, split by standard vs resale.
-      // We exclude listings at the cheapest price point to avoid racing to the bottom.
+      // Pre-compute cheapest cost per event, grouped by inventoryTag
+      // (standard vs resale). Source of truth is the TM facet — offer.inventoryType
+      // is stored directly on inventory.inventoryTag. Falls back to splitType
+      // for legacy records that don't have the tag yet.
       const eventMinCostStandard = new Map<string, number>();
       const eventMinCostResale = new Map<string, number>();
       try {
@@ -510,7 +512,20 @@ export async function generateInventoryCsv(eventUpdateFilterMinutes: number = 0)
             $group: {
               _id: {
                 mapping_id: '$mapping_id',
-                isStandard: { $eq: ['$inventory.splitType', 'NEVERLEAVEONE'] },
+                // Prefer inventoryTag from TM facet; fall back to splitType for legacy records
+                tag: {
+                  $cond: [
+                    { $in: ['$inventory.inventoryTag', ['standard', 'resale']] },
+                    '$inventory.inventoryTag',
+                    {
+                      $cond: [
+                        { $eq: ['$inventory.splitType', 'NEVERLEAVEONE'] },
+                        'standard',
+                        'resale',
+                      ],
+                    },
+                  ],
+                },
               },
               minCost: { $min: '$inventory.cost' },
             },
@@ -519,9 +534,9 @@ export async function generateInventoryCsv(eventUpdateFilterMinutes: number = 0)
         for (const row of minCosts) {
           if (!row._id.mapping_id || row.minCost == null) continue;
           const cost = Number(row.minCost.toFixed(2));
-          if (row._id.isStandard) {
+          if (row._id.tag === 'standard') {
             eventMinCostStandard.set(row._id.mapping_id, cost);
-          } else {
+          } else if (row._id.tag === 'resale') {
             eventMinCostResale.set(row._id.mapping_id, cost);
           }
         }
@@ -562,6 +577,7 @@ export async function generateInventoryCsv(eventUpdateFilterMinutes: number = 0)
       'inventory.instant_transfer': 1,
       'inventory.files_available': 1,
       'inventory.splitType': 1,
+      'inventory.inventoryTag': 1,
       'inventory.custom_split': 1,
       'inventory.stockType': 1,
       'inventory.zone': 1,
@@ -745,6 +761,7 @@ interface ConsecutiveGroupDocument {
     instant_transfer?: boolean;
     files_available?: boolean;
     splitType?: string;
+    inventoryTag?: string;
     custom_split?: string;
     stockType?: string;
     zone?: boolean;
@@ -893,12 +910,15 @@ async function processBatch(batch: ConsecutiveGroupDocument[]): Promise<CsvRow[]
     const section = (doc.inventory?.section || '').toLowerCase();
     if (section.includes('table')) return false;
 
-    // Exclude cheapest price point per event per type (standard/resale).
-    // This prevents us from racing to the bottom on the lowest listing.
+    // Exclude cheapest price point per event per inventoryTag (standard/resale).
+    // Source of truth is TM's offer.inventoryType, stored on inventory.inventoryTag.
+    // Falls back to splitType for legacy records. Prevents racing to the bottom
+    // on "get-in" tickets, which carry a higher level of risk.
     const mappingId = doc.mapping_id || '';
     const docCost = Number((doc.inventory?.cost || 0).toFixed(2));
-    const isStandardListing = doc.inventory?.splitType === 'NEVERLEAVEONE';
-    const minCost = isStandardListing
+    const tag = doc.inventory?.inventoryTag
+      ?? (doc.inventory?.splitType === 'NEVERLEAVEONE' ? 'standard' : 'resale');
+    const minCost = tag === 'standard'
       ? _eventMinCostStandard.get(mappingId)
       : _eventMinCostResale.get(mappingId);
     if (minCost != null && docCost === minCost) return false;
