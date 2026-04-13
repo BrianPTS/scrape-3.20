@@ -290,9 +290,9 @@ const _venueTzCache = new Map<string, string | null>();
 let _sectionOrderCounts = new Map<string, number>();
 let _sectionListingCounts = new Map<string, number>();
 
-// Cheapest price point per event per type (populated per CSV run)
-// Key: mapping_id → min cost (rounded to 2 decimals)
-let _eventMinCostStandard = new Map<string, number>();
+// Cheapest resale price point per event (populated per CSV run)
+// Key: mapping_id → min resale cost (rounded to 2 decimals).
+// Standard listings are NOT subject to this exclusion.
 let _eventMinCostResale = new Map<string, number>();
 
 // ── Global: stop events with seats <= threshold & clear their inventory ──
@@ -499,56 +499,45 @@ export async function generateInventoryCsv(eventUpdateFilterMinutes: number = 0)
         console.error('[CSV] Section listing count error:', (err as Error).message);
       }
 
-      // Pre-compute cheapest cost per event, grouped by inventoryTag
-      // (standard vs resale). Source of truth is the TM facet — offer.inventoryType
-      // is stored directly on inventory.inventoryTag. Falls back to splitType
-      // for legacy records that don't have the tag yet.
-      const eventMinCostStandard = new Map<string, number>();
+      // Pre-compute cheapest RESALE cost per event. Standard listings are NOT
+      // subject to this exclusion. Source of truth is the TM facet —
+      // offer.inventoryType is stored directly on inventory.inventoryTag.
+      // Falls back to splitType for legacy records that don't have the tag yet.
       const eventMinCostResale = new Map<string, number>();
       try {
         const minCosts = await ConsecutiveGroup.aggregate([
-          { $match: { mapping_id: { $in: eventMappingIds } } },
+          {
+            $match: {
+              mapping_id: { $in: eventMappingIds },
+              $or: [
+                { 'inventory.inventoryTag': 'resale' },
+                // Legacy fallback: no inventoryTag, infer from splitType
+                {
+                  'inventory.inventoryTag': { $in: [null, undefined] },
+                  'inventory.splitType': { $ne: 'NEVERLEAVEONE' },
+                },
+              ],
+            },
+          },
           {
             $group: {
-              _id: {
-                mapping_id: '$mapping_id',
-                // Prefer inventoryTag from TM facet; fall back to splitType for legacy records
-                tag: {
-                  $cond: [
-                    { $in: ['$inventory.inventoryTag', ['standard', 'resale']] },
-                    '$inventory.inventoryTag',
-                    {
-                      $cond: [
-                        { $eq: ['$inventory.splitType', 'NEVERLEAVEONE'] },
-                        'standard',
-                        'resale',
-                      ],
-                    },
-                  ],
-                },
-              },
+              _id: '$mapping_id',
               minCost: { $min: '$inventory.cost' },
             },
           },
         ]);
         for (const row of minCosts) {
-          if (!row._id.mapping_id || row.minCost == null) continue;
-          const cost = Number(row.minCost.toFixed(2));
-          if (row._id.tag === 'standard') {
-            eventMinCostStandard.set(row._id.mapping_id, cost);
-          } else if (row._id.tag === 'resale') {
-            eventMinCostResale.set(row._id.mapping_id, cost);
-          }
+          if (!row._id || row.minCost == null) continue;
+          eventMinCostResale.set(row._id, Number(row.minCost.toFixed(2)));
         }
-        console.log(`[CSV] Min-cost exclusion: ${eventMinCostStandard.size} standard + ${eventMinCostResale.size} resale event minimums computed`);
+        console.log(`[CSV] Resale min-cost exclusion: ${eventMinCostResale.size} events computed`);
       } catch (err) {
-        console.error('[CSV] Min-cost pre-computation error:', (err as Error).message);
+        console.error('[CSV] Resale min-cost pre-computation error:', (err as Error).message);
       }
 
       // Expose sell-through maps to processBatch via module scope
       _sectionOrderCounts = sectionOrderCounts;
       _sectionListingCounts = sectionListingCounts;
-      _eventMinCostStandard = eventMinCostStandard;
       _eventMinCostResale = eventMinCostResale;
 
     // Projection — no longer need event_std_adj etc from $lookup
@@ -910,18 +899,19 @@ async function processBatch(batch: ConsecutiveGroupDocument[]): Promise<CsvRow[]
     const section = (doc.inventory?.section || '').toLowerCase();
     if (section.includes('table')) return false;
 
-    // Exclude cheapest price point per event per inventoryTag (standard/resale).
-    // Source of truth is TM's offer.inventoryType, stored on inventory.inventoryTag.
-    // Falls back to splitType for legacy records. Prevents racing to the bottom
-    // on "get-in" tickets, which carry a higher level of risk.
-    const mappingId = doc.mapping_id || '';
-    const docCost = Number((doc.inventory?.cost || 0).toFixed(2));
+    // Exclude cheapest RESALE price point per event. Standard listings are
+    // NOT affected by this filter. Source of truth is TM's offer.inventoryType,
+    // stored on inventory.inventoryTag. Falls back to splitType for legacy
+    // records. Prevents racing to the bottom on resale "get-in" tickets,
+    // which carry a higher level of risk.
     const tag = doc.inventory?.inventoryTag
       ?? (doc.inventory?.splitType === 'NEVERLEAVEONE' ? 'standard' : 'resale');
-    const minCost = tag === 'standard'
-      ? _eventMinCostStandard.get(mappingId)
-      : _eventMinCostResale.get(mappingId);
-    if (minCost != null && docCost === minCost) return false;
+    if (tag === 'resale') {
+      const mappingId = doc.mapping_id || '';
+      const docCost = Number((doc.inventory?.cost || 0).toFixed(2));
+      const minCost = _eventMinCostResale.get(mappingId);
+      if (minCost != null && docCost === minCost) return false;
+    }
 
     return true;
   }).map(doc => {
