@@ -290,6 +290,11 @@ const _venueTzCache = new Map<string, string | null>();
 let _sectionOrderCounts = new Map<string, number>();
 let _sectionListingCounts = new Map<string, number>();
 
+// Cheapest price point per event per type (populated per CSV run)
+// Key: mapping_id → min cost (rounded to 2 decimals)
+let _eventMinCostStandard = new Map<string, number>();
+let _eventMinCostResale = new Map<string, number>();
+
 // ── Global: stop events with seats <= threshold & clear their inventory ──
 export async function stopLowSeatEvents(): Promise<{ stopped: number; eventIds: string[] }> {
   await dbConnect();
@@ -494,9 +499,42 @@ export async function generateInventoryCsv(eventUpdateFilterMinutes: number = 0)
         console.error('[CSV] Section listing count error:', (err as Error).message);
       }
 
+      // Pre-compute cheapest cost per event, split by standard vs resale.
+      // We exclude listings at the cheapest price point to avoid racing to the bottom.
+      const eventMinCostStandard = new Map<string, number>();
+      const eventMinCostResale = new Map<string, number>();
+      try {
+        const minCosts = await ConsecutiveGroup.aggregate([
+          { $match: { mapping_id: { $in: eventMappingIds } } },
+          {
+            $group: {
+              _id: {
+                mapping_id: '$mapping_id',
+                isStandard: { $eq: ['$inventory.splitType', 'NEVERLEAVEONE'] },
+              },
+              minCost: { $min: '$inventory.cost' },
+            },
+          },
+        ]);
+        for (const row of minCosts) {
+          if (!row._id.mapping_id || row.minCost == null) continue;
+          const cost = Number(row.minCost.toFixed(2));
+          if (row._id.isStandard) {
+            eventMinCostStandard.set(row._id.mapping_id, cost);
+          } else {
+            eventMinCostResale.set(row._id.mapping_id, cost);
+          }
+        }
+        console.log(`[CSV] Min-cost exclusion: ${eventMinCostStandard.size} standard + ${eventMinCostResale.size} resale event minimums computed`);
+      } catch (err) {
+        console.error('[CSV] Min-cost pre-computation error:', (err as Error).message);
+      }
+
       // Expose sell-through maps to processBatch via module scope
       _sectionOrderCounts = sectionOrderCounts;
       _sectionListingCounts = sectionListingCounts;
+      _eventMinCostStandard = eventMinCostStandard;
+      _eventMinCostResale = eventMinCostResale;
 
     // Projection — no longer need event_std_adj etc from $lookup
     const projection = {
@@ -854,6 +892,17 @@ async function processBatch(batch: ConsecutiveGroupDocument[]): Promise<CsvRow[]
     // Global filter: exclude any listing whose section contains "table" (case-insensitive)
     const section = (doc.inventory?.section || '').toLowerCase();
     if (section.includes('table')) return false;
+
+    // Exclude cheapest price point per event per type (standard/resale).
+    // This prevents us from racing to the bottom on the lowest listing.
+    const mappingId = doc.mapping_id || '';
+    const docCost = Number((doc.inventory?.cost || 0).toFixed(2));
+    const isStandardListing = doc.inventory?.splitType === 'NEVERLEAVEONE';
+    const minCost = isStandardListing
+      ? _eventMinCostStandard.get(mappingId)
+      : _eventMinCostResale.get(mappingId);
+    if (minCost != null && docCost === minCost) return false;
+
     return true;
   }).map(doc => {
     const inventory = doc.inventory;
