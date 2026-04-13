@@ -499,34 +499,30 @@ export async function generateInventoryCsv(eventUpdateFilterMinutes: number = 0)
         console.error('[CSV] Section listing count error:', (err as Error).message);
       }
 
-      // Pre-compute cheapest cost per event, grouped by inventory tag (STANDARD,
-      // RESALE, GA_STANDARD, GA_RESALE). We exclude listings at the cheapest price
-      // point per tag to avoid racing to the bottom on "get-in" tickets.
-      // GA listings compete only against other GA listings of the same type.
+      // Pre-compute cheapest cost per event, grouped by inventory tag
+      // (STANDARD or RESALE). GA listings are excluded from this feature
+      // entirely — they always pass through. We exclude listings at the
+      // cheapest price point per tag to avoid racing to the bottom on
+      // "get-in" tickets, which carry a higher level of risk.
       const eventMinCostByTag = new Map<string, number>();
       try {
         const minCosts = await ConsecutiveGroup.aggregate([
-          { $match: { mapping_id: { $in: eventMappingIds } } },
+          {
+            $match: {
+              mapping_id: { $in: eventMappingIds },
+              // Exclude GA listings (row matches GA or GA1, GA2, etc.)
+              'inventory.row': { $not: { $regex: /^GA\d*$/i } },
+            },
+          },
           {
             $group: {
               _id: {
                 mapping_id: '$mapping_id',
                 tag: {
-                  $concat: [
-                    {
-                      $cond: [
-                        { $regexMatch: { input: { $ifNull: ['$inventory.row', ''] }, regex: /^GA\d*$/i } },
-                        'GA_',
-                        '',
-                      ],
-                    },
-                    {
-                      $cond: [
-                        { $eq: ['$inventory.splitType', 'NEVERLEAVEONE'] },
-                        'STANDARD',
-                        'RESALE',
-                      ],
-                    },
+                  $cond: [
+                    { $eq: ['$inventory.splitType', 'NEVERLEAVEONE'] },
+                    'STANDARD',
+                    'RESALE',
                   ],
                 },
               },
@@ -539,7 +535,7 @@ export async function generateInventoryCsv(eventUpdateFilterMinutes: number = 0)
           const cost = Number(row.minCost.toFixed(2));
           eventMinCostByTag.set(`${row._id.mapping_id}|${row._id.tag}`, cost);
         }
-        console.log(`[CSV] Min-cost exclusion: ${eventMinCostByTag.size} event+tag minimums computed`);
+        console.log(`[CSV] Min-cost exclusion: ${eventMinCostByTag.size} event+tag minimums computed (GA excluded)`);
       } catch (err) {
         console.error('[CSV] Min-cost pre-computation error:', (err as Error).message);
       }
@@ -906,18 +902,18 @@ async function processBatch(batch: ConsecutiveGroupDocument[]): Promise<CsvRow[]
     const section = (doc.inventory?.section || '').toLowerCase();
     if (section.includes('table')) return false;
 
-    // Exclude cheapest price point per event, grouped by inventory tag
-    // (STANDARD, RESALE, GA_STANDARD, GA_RESALE). This prevents racing to the
-    // bottom on "get-in" tickets, which carry a higher level of risk.
-    // GA listings compete only against other GA listings of the same type.
-    const mappingId = doc.mapping_id || '';
-    const docCost = Number((doc.inventory?.cost || 0).toFixed(2));
+    // Exclude cheapest price point per event per inventory tag (STANDARD or
+    // RESALE). Prevents racing to the bottom on "get-in" tickets, which carry
+    // a higher level of risk. GA listings are exempt — they always pass through.
     const docRow = doc.inventory?.row || '';
     const docIsGA = /^GA\d*$/i.test(docRow);
-    const docIsStandard = doc.inventory?.splitType === 'NEVERLEAVEONE';
-    const docTag = `${docIsGA ? 'GA_' : ''}${docIsStandard ? 'STANDARD' : 'RESALE'}`;
-    const minCost = _eventMinCostByTag.get(`${mappingId}|${docTag}`);
-    if (minCost != null && docCost === minCost) return false;
+    if (!docIsGA) {
+      const mappingId = doc.mapping_id || '';
+      const docCost = Number((doc.inventory?.cost || 0).toFixed(2));
+      const docTag = doc.inventory?.splitType === 'NEVERLEAVEONE' ? 'STANDARD' : 'RESALE';
+      const minCost = _eventMinCostByTag.get(`${mappingId}|${docTag}`);
+      if (minCost != null && docCost === minCost) return false;
+    }
 
     return true;
   }).map(doc => {
