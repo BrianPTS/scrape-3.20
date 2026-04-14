@@ -92,6 +92,23 @@ const eventSchema = new mongoose.Schema(
       type: Date,
       default: Date.now,
     },
+    // TM Discovery API date sync tracking
+    lastTmDateSync: {
+      type: Date,
+      default: null,
+    },
+    tmStatus: {
+      type: String,
+      default: null, // "onsale" | "offsale" | "canceled" | "postponed" | "rescheduled"
+    },
+    tmDateSyncHistory: [{
+      syncedAt: { type: Date, default: Date.now },
+      previousDateTime: Date,
+      newDateTime: Date,
+      previousStatus: String,
+      newStatus: String,
+      source: { type: String, default: 'daily-sync' },
+    }],
     // StubHub matching fields (set by scraper)
     stubhubEventId: {
       type: String,
