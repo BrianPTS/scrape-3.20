@@ -20,6 +20,7 @@ import {
   BarChart3,
   Users,
   FileBarChart,
+  Clock,
 } from 'lucide-react';
 
 interface FeatureFlags {
@@ -162,6 +163,12 @@ const DashboardLayout = ({ children }: { children: React.ReactNode }) => {
       label: 'Proxies',
       icon: <SignalHigh className="w-5 h-5" />,
       flagKey: 'proxies' as keyof FeatureFlags,
+    },
+    {
+      path: '/dashboard/date-changes',
+      label: 'Date Changes',
+      icon: <Clock className="w-5 h-5" />,
+      flagKey: null, // always visible
     },
   ];
 

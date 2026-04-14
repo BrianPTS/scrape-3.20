@@ -72,9 +72,36 @@ export async function syncAllEventDatesFromTM(): Promise<TmSyncStats> {
           const tmEvent = await getEventById(event.Event_ID);
 
           if (!tmEvent) {
-            // 404 — event pulled from TM
+            // 404 — event pulled from TM. Stop scraping and flag for human review.
             stats.notFound++;
-            console.warn(`[TM Date Sync] Event not found on TM: ${event.Event_Name} (${event.Event_ID})`);
+            await Event.updateOne(
+              { _id: event._id },
+              {
+                $set: {
+                  Skip_Scraping: true,
+                  tmStatus: 'not_found',
+                  lastTmDateSync: new Date(),
+                },
+                $push: {
+                  tmDateSyncHistory: {
+                    syncedAt: new Date(),
+                    previousDateTime: event.Event_DateTime,
+                    newDateTime: null,
+                    previousStatus: event.tmStatus || null,
+                    newStatus: 'not_found',
+                    source: 'daily-sync',
+                  },
+                },
+              }
+            );
+            stats.changes.push({
+              mapping_id: event.mapping_id,
+              event_name: event.Event_Name,
+              previousDate: event.Event_DateTime ? new Date(event.Event_DateTime).toISOString() : '',
+              newDate: '',
+              status: 'not_found',
+            });
+            console.warn(`[TM Date Sync] 404 — stopped scraping: ${event.Event_Name} (${event.Event_ID})`);
             return;
           }
 
@@ -89,7 +116,13 @@ export async function syncAllEventDatesFromTM(): Promise<TmSyncStats> {
 
           if (dateChanged || statusChanged) {
             const update: Record<string, any> = { lastTmDateSync: new Date() };
-            if (dateChanged) update.Event_DateTime = tmDateTime;
+            if (dateChanged) {
+              update.Event_DateTime = tmDateTime;
+              // Pause scraping for 20 min when the date/time moves, so the
+              // scraper doesn't build stale ConsecutiveGroups mid-transition.
+              update.Skip_Scraping = true;
+              update.autoResumeAt = new Date(Date.now() + 20 * 60 * 1000);
+            }
             if (statusChanged) update.tmStatus = tmEvent.status;
 
             const historyEntry = {
@@ -153,4 +186,26 @@ export async function syncAllEventDatesFromTM(): Promise<TmSyncStats> {
   );
 
   return stats;
+}
+
+/**
+ * Resume any events whose autoResumeAt timestamp has passed.
+ *
+ * Called every 5 minutes by the scheduler. Events paused by the sync job
+ * (after a date change) are auto-resumed 20 minutes later.
+ */
+export async function autoResumeEvents(): Promise<{ resumed: number; resumedAt: Date }> {
+  await dbConnect();
+  const now = new Date();
+
+  const result = await Event.updateMany(
+    { autoResumeAt: { $ne: null, $lte: now } },
+    { $set: { Skip_Scraping: false, autoResumeAt: null } }
+  );
+
+  if (result.modifiedCount > 0) {
+    console.log(`[TM Date Sync] Auto-resumed ${result.modifiedCount} paused events`);
+  }
+
+  return { resumed: result.modifiedCount, resumedAt: now };
 }

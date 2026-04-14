@@ -1,6 +1,10 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { NextRequest, NextResponse } from 'next/server';
-import { syncAllEventDatesFromTM, type TmSyncStats } from '@/actions/ticketmasterSyncActions';
+import {
+  syncAllEventDatesFromTM,
+  autoResumeEvents,
+  type TmSyncStats,
+} from '@/actions/ticketmasterSyncActions';
 
 // ═══════════════════════════════════════════════════════════════════
 // Daily Ticketmaster Event Date Sync Scheduler
@@ -8,28 +12,38 @@ import { syncAllEventDatesFromTM, type TmSyncStats } from '@/actions/ticketmaste
 // Runs every 24 hours to check every active TM event against the
 // Discovery API and update our stored Event_DateTime if TM has moved
 // the event. Uses globalThis state to survive Next.js module re-eval.
+//
+// Also runs a resume check every 5 minutes to un-pause events whose
+// autoResumeAt timestamp has passed (20-min cooldown after a date change).
 // ═══════════════════════════════════════════════════════════════════
 
 const TM_SYNC_KEY = '__tmDateSyncScheduler__';
 const SYNC_INTERVAL_MS = 24 * 60 * 60 * 1000; // 24 hours
+const RESUME_CHECK_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
 
 interface TmSyncState {
-  interval: NodeJS.Timeout | null;
+  syncInterval: NodeJS.Timeout | null;
+  resumeInterval: NodeJS.Timeout | null;
   initialized: boolean;
   running: boolean;
   lastRun: Date | null;
   lastStats: TmSyncStats | null;
+  lastResumeCheck: Date | null;
+  lastResumedCount: number;
   startedAt: Date | null;
 }
 
 function getTmSyncState(): TmSyncState {
   if (!(globalThis as Record<string, unknown>)[TM_SYNC_KEY]) {
     (globalThis as Record<string, unknown>)[TM_SYNC_KEY] = {
-      interval: null,
+      syncInterval: null,
+      resumeInterval: null,
       initialized: false,
       running: false,
       lastRun: null,
       lastStats: null,
+      lastResumeCheck: null,
+      lastResumedCount: 0,
       startedAt: null,
     };
   }
@@ -57,28 +71,54 @@ async function runSync(): Promise<TmSyncStats | null> {
   }
 }
 
+async function runResumeCheck(): Promise<void> {
+  const state = getTmSyncState();
+  try {
+    const result = await autoResumeEvents();
+    state.lastResumeCheck = result.resumedAt;
+    state.lastResumedCount = result.resumed;
+  } catch (err) {
+    console.error('[TM Date Sync] Resume check failed:', (err as Error).message);
+  }
+}
+
 function startScheduler() {
   const state = getTmSyncState();
-  if (state.interval) return;
+  if (state.syncInterval) return;
 
-  state.interval = setInterval(() => {
+  // 24h full sync
+  state.syncInterval = setInterval(() => {
     runSync().catch((err) => {
-      console.error('[TM Date Sync] Unhandled error in interval:', err);
+      console.error('[TM Date Sync] Unhandled error in sync interval:', err);
     });
   }, SYNC_INTERVAL_MS);
 
+  // 5-min resume check
+  state.resumeInterval = setInterval(() => {
+    runResumeCheck().catch((err) => {
+      console.error('[TM Date Sync] Unhandled error in resume interval:', err);
+    });
+  }, RESUME_CHECK_INTERVAL_MS);
+
   state.startedAt = new Date();
-  console.log(`[TM Date Sync] Scheduler started — runs every ${SYNC_INTERVAL_MS / 1000 / 60 / 60}h`);
+  console.log(
+    `[TM Date Sync] Scheduler started — sync every ${SYNC_INTERVAL_MS / 1000 / 60 / 60}h, ` +
+    `resume check every ${RESUME_CHECK_INTERVAL_MS / 1000 / 60}min`
+  );
 }
 
 function stopScheduler() {
   const state = getTmSyncState();
-  if (state.interval) {
-    clearInterval(state.interval);
-    state.interval = null;
-    state.startedAt = null;
-    console.log('[TM Date Sync] Scheduler stopped');
+  if (state.syncInterval) {
+    clearInterval(state.syncInterval);
+    state.syncInterval = null;
   }
+  if (state.resumeInterval) {
+    clearInterval(state.resumeInterval);
+    state.resumeInterval = null;
+  }
+  state.startedAt = null;
+  console.log('[TM Date Sync] Scheduler stopped');
 }
 
 // Auto-initialize on module load
@@ -95,17 +135,20 @@ function stopScheduler() {
 export async function GET() {
   const state = getTmSyncState();
   return NextResponse.json({
-    running: state.interval !== null,
+    running: state.syncInterval !== null,
     currentlyExecuting: state.running,
     startedAt: state.startedAt,
     lastRun: state.lastRun,
     lastStats: state.lastStats,
+    lastResumeCheck: state.lastResumeCheck,
+    lastResumedCount: state.lastResumedCount,
     intervalHours: SYNC_INTERVAL_MS / 1000 / 60 / 60,
+    resumeCheckMinutes: RESUME_CHECK_INTERVAL_MS / 1000 / 60,
   });
 }
 
 // ─────────────────────────────────────────────────────────────────────
-// POST — manual control: run-now | start | stop
+// POST — manual control: run-now | start | stop | resume-check
 // ─────────────────────────────────────────────────────────────────────
 export async function POST(req: NextRequest) {
   try {
@@ -115,6 +158,16 @@ export async function POST(req: NextRequest) {
     if (action === 'run-now') {
       const stats = await runSync();
       return NextResponse.json({ success: true, stats });
+    }
+
+    if (action === 'resume-check') {
+      await runResumeCheck();
+      const state = getTmSyncState();
+      return NextResponse.json({
+        success: true,
+        resumed: state.lastResumedCount,
+        at: state.lastResumeCheck,
+      });
     }
 
     if (action === 'start') {
@@ -128,7 +181,7 @@ export async function POST(req: NextRequest) {
     }
 
     return NextResponse.json(
-      { success: false, message: 'Unknown action. Use: run-now | start | stop' },
+      { success: false, message: 'Unknown action. Use: run-now | resume-check | start | stop' },
       { status: 400 }
     );
   } catch (err) {
