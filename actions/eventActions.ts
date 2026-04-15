@@ -39,6 +39,11 @@ export async function createEvent(eventData: Partial<Event>) {
       return { error: 'Rhode Island events are not allowed.' };
     }
 
+    // Block Greek Theatre, Los Angeles — we never want events at this venue
+    if (/greek\s*theatre.*los\s*angeles/i.test(venue)) {
+      return { error: 'Greek Theatre (Los Angeles) events are not allowed.' };
+    }
+
     const newEvent = new Event(eventData);
     const savedEvent = await newEvent.save();
     return JSON.parse(JSON.stringify(savedEvent));

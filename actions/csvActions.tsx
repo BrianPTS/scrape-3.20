@@ -895,6 +895,9 @@ async function processBatch(batch: ConsecutiveGroupDocument[]): Promise<CsvRow[]
     // Exclude Rhode Island events — venue_name ends with ,RI or , RI (case-insensitive)
     if (/,\s*RI$/i.test((doc.venue_name || '').trim())) return false;
 
+    // Exclude Greek Theatre, Los Angeles — hard blocklist, this venue never ships to marketplaces
+    if (/greek\s*theatre.*los\s*angeles/i.test((doc.venue_name || '').trim())) return false;
+
     // Global filter: exclude any listing whose section contains "table" (case-insensitive)
     const section = (doc.inventory?.section || '').toLowerCase();
     if (section.includes('table')) return false;
