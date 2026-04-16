@@ -309,9 +309,11 @@ export async function deleteConsecutiveGroupsByEventIds(eventIds: string[]) {
     const groupsToDelete = await ConsecutiveGroup.find({ eventId: { $in: eventIds } }).lean();
     console.log(`Found ${groupsToDelete.length} consecutive groups for events: ${eventIds.join(', ')}`);
     
-    // Extract inventory IDs (mapping_id field contains the inventory ID)
+    // Extract inventory IDs — must use inventory.inventoryId (same field
+    // the singular deleteConsecutiveGroupsByEventId uses) so the Automatiq
+    // sync API receives the correct IDs to delist.
     const inventoryIdsToDelete = groupsToDelete
-      .map(group => group.mapping_id)
+      .map(group => group.inventory?.inventoryId?.toString())
       .filter(id => id && id.trim() !== ''); // Filter out empty or null IDs
     
     console.log(`Inventory IDs to delete from sync: ${inventoryIdsToDelete.length} items`);
