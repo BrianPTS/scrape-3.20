@@ -334,6 +334,44 @@ export const EventFormFields = {
     </FormField.Root>
   ),
 
+  EventType: ({ name, value, status, error, onChange, onBlur, disabled }: {
+    name: string;
+    value: string;
+    status: 'untouched' | 'valid' | 'invalid';
+    error?: string;
+    onChange: (e: React.ChangeEvent<HTMLSelectElement>) => void;
+    onBlur: (e: React.FocusEvent<HTMLSelectElement>) => void;
+    disabled?: boolean;
+  }) => (
+    <FormField.Root>
+      <FormField.Label htmlFor={name} required>Event Type</FormField.Label>
+      <select
+        id={name}
+        name={name}
+        value={value}
+        onChange={onChange}
+        onBlur={onBlur}
+        disabled={disabled}
+        className={`w-full px-3 py-2 border rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:border-transparent disabled:bg-slate-50 disabled:cursor-not-allowed transition-all ${
+          status === 'invalid' ? 'border-red-300 bg-red-50' :
+          !value ? 'border-amber-300 bg-amber-50 text-amber-700' :
+          'border-slate-200 text-slate-700'
+        }`}
+      >
+        <option value="">Select Event Type *</option>
+        <option value="NFL">NFL</option>
+        <option value="MLB">MLB</option>
+        <option value="NHL">NHL</option>
+        <option value="NBA">NBA</option>
+        <option value="OTHER">Other</option>
+      </select>
+      {status === 'invalid' && error && (
+        <p className="text-xs text-red-600 mt-1">{error}</p>
+      )}
+      <FormField.Help>Required before scraping can start. Used for filtering on the Events page.</FormField.Help>
+    </FormField.Root>
+  ),
+
   MappingID: ({ name, value, status, error, onChange, onBlur, disabled }: {
     name: string;
     value: string;

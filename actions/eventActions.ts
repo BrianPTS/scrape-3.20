@@ -145,6 +145,15 @@ export async function getPaginatedEventsAdvanced(page: number = 1, limit: number
       filterConditions.push({ Skip_Scraping: true });
     }
 
+    // Event type filter (NFL, MLB, NHL, NBA, OTHER, or UNSET for null/missing)
+    if (filters.eventType) {
+      if (filters.eventType === 'UNSET') {
+        filterConditions.push({ $or: [{ eventType: null }, { eventType: { $exists: false } }] });
+      } else if (['NFL', 'MLB', 'NHL', 'NBA', 'OTHER'].includes(filters.eventType)) {
+        filterConditions.push({ eventType: filters.eventType });
+      }
+    }
+
     // Available seats filter
     if (filters.hasAvailableSeats === 'yes') {
       filterConditions.push({ Available_Seats: { $gt: 0 } });

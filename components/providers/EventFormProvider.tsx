@@ -29,6 +29,7 @@ interface FormData {
   standardMarkupAdjustment: FormField;
   resaleMarkupAdjustment: FormField;
   source: FormField;
+  eventType: FormField;
 }
 
 interface FormContextInterface {
@@ -68,6 +69,7 @@ const validationRules: {
   standardMarkupAdjustment: (value: number) => boolean;
   resaleMarkupAdjustment: (value: number) => boolean;
   source: (value: string) => boolean;
+  eventType: (value: string) => boolean;
 } = {
   URL: (value: string) => {
     try {
@@ -93,6 +95,7 @@ const validationRules: {
   standardMarkupAdjustment: () => true,
   resaleMarkupAdjustment: () => true,
   source: () => true,
+  eventType: (value: string) => ['NFL', 'MLB', 'NHL', 'NBA', 'OTHER'].includes(value),
 };
 
 const errorMessages = {
@@ -111,6 +114,7 @@ const errorMessages = {
   standardMarkupAdjustment: "",
   resaleMarkupAdjustment: "",
   source: "",
+  eventType: "Please select an event type (NFL/MLB/NHL/NBA/OTHER)",
 };
 
 export function EventFormProvider({ children, initialData }: { 
@@ -145,6 +149,7 @@ export function EventFormProvider({ children, initialData }: {
       standardMarkupAdjustment: { value: initialData?.standardMarkupAdjustment ?? 0, status: 'untouched' },
       resaleMarkupAdjustment: { value: initialData?.resaleMarkupAdjustment ?? 0, status: 'untouched' },
       source: { value: initialData?.source || 'ticketmaster', status: 'untouched' },
+      eventType: { value: initialData?.eventType || "", status: 'untouched' },
     };
   };
 

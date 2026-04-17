@@ -114,6 +114,13 @@ const eventSchema = new mongoose.Schema(
       type: Date,
       default: null,
     },
+    // Sport / category — required before scraping can be started.
+    // null = not yet chosen (forces the user to pick before hitting Start).
+    eventType: {
+      type: String,
+      enum: ['NFL', 'MLB', 'NHL', 'NBA', 'OTHER', null],
+      default: null,
+    },
     // StubHub matching fields (set by scraper)
     stubhubEventId: {
       type: String,

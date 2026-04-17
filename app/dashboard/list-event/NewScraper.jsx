@@ -274,6 +274,7 @@ const EventFormContent = ({ mode, onCancel, onSuccess, initialData }) => {
         standardMarkupAdjustment: form.data.standardMarkupAdjustment.value,
         resaleMarkupAdjustment: form.data.resaleMarkupAdjustment.value,
         source: form.data.source.value,
+        eventType: form.data.eventType?.value || null,
       };
 
       let result;
@@ -419,6 +420,17 @@ const EventFormContent = ({ mode, onCancel, onSuccess, initialData }) => {
               name="Available_Seats"
               value={form.data.Available_Seats.value}
               onChange={handleInputChange}
+              disabled={form.meta.isSubmitting}
+            />
+
+            {/* Event Type Field — required before scraping can start */}
+            <EventFormFields.EventType
+              name="eventType"
+              value={form.data.eventType?.value || ""}
+              status={form.data.eventType?.status || "untouched"}
+              error={form.data.eventType?.error}
+              onChange={handleInputChange}
+              onBlur={handleBlur}
               disabled={form.meta.isSubmitting}
             />
 

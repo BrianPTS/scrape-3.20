@@ -10,6 +10,7 @@ interface PageProps {
     dateTo?: string;
     venue?: string;
     scrapingStatus?: string;
+    eventType?: string;
     sortBy?: string;
     seatMin?: string;
     seatMax?: string;

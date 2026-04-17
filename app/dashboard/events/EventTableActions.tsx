@@ -12,6 +12,7 @@ interface EventTableActionsProps {
   eventName: string;
   isScrapingActive: boolean;
   stubhubEnabled?: boolean;
+  eventType?: string | null;
   compact?: boolean;
 }
 
@@ -20,6 +21,7 @@ export default function EventTableActions({
   eventName,
   isScrapingActive,
   stubhubEnabled: initialStubhubEnabled = true,
+  eventType = null,
   compact = false
 }: EventTableActionsProps) {
   const router = useRouter();
@@ -30,6 +32,7 @@ export default function EventTableActions({
   const [mounted, setMounted] = useState(false);
   const [stubhubOn, setStubhubOn] = useState(initialStubhubEnabled);
   const [isTogglingStubhub, startStubhubTransition] = useTransition();
+  const [toggleError, setToggleError] = useState<string | null>(null);
 
   useEffect(() => setMounted(true), []);
 
@@ -43,8 +46,18 @@ export default function EventTableActions({
     });
   };
 
-  // Toggle scraping status
+  // Toggle scraping status.
+  // isScrapingActive=true means currently scraping → clicking turns it OFF (stop).
+  // isScrapingActive=false means currently stopped → clicking turns it ON (start).
+  // We only validate eventType when STARTING. Stopping is always allowed.
   const handleToggleScraping = async () => {
+    const isStarting = !isScrapingActive;
+    if (isStarting && !eventType) {
+      setToggleError('Event type must be set before starting. Edit the event and choose NFL / MLB / NHL / NBA / Other.');
+      window.setTimeout(() => setToggleError(null), 5000);
+      return;
+    }
+    setToggleError(null);
     setIsToggling(true);
     startTransition(async () => {
       try {
@@ -110,8 +123,9 @@ export default function EventTableActions({
 
             <button
               onClick={handleToggleScraping}
-              disabled={isToggling}
-              className="flex items-center gap-2 w-full px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+              disabled={isToggling || (!isScrapingActive && !eventType)}
+              title={!isScrapingActive && !eventType ? 'Set event type before starting' : undefined}
+              className="flex items-center gap-2 w-full px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {isToggling ? (
                 <div className="w-3 h-3 border-2 border-gray-400 border-t-transparent rounded-full animate-spin" />
@@ -120,7 +134,7 @@ export default function EventTableActions({
               ) : (
                 <Play size={14} />
               )}
-              {isToggling ? 'Processing...' : isScrapingActive ? 'Stop' : 'Start'}
+              {isToggling ? 'Processing...' : isScrapingActive ? 'Stop' : (!eventType ? 'Set Type →' : 'Start')}
             </button>
 
             <button
@@ -176,14 +190,17 @@ export default function EventTableActions({
       
       <button
         onClick={handleToggleScraping}
-        disabled={isToggling}
-        aria-label={isToggling ? `Updating ${eventName}…` : isScrapingActive ? `Stop scraping ${eventName}` : `Start scraping ${eventName}`}
+        disabled={isToggling || (!isScrapingActive && !eventType)}
+        aria-label={isToggling ? `Updating ${eventName}…` : isScrapingActive ? `Stop scraping ${eventName}` : !eventType ? `Set event type before starting` : `Start scraping ${eventName}`}
         aria-busy={isToggling}
+        title={!isScrapingActive && !eventType ? 'Set event type (NFL/MLB/NHL/NBA/OTHER) before starting' : undefined}
         className={`flex items-center gap-1 px-2 py-1 rounded-md text-xs font-semibold transition-[background-color,opacity] duration-150 disabled:opacity-50 disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-1 ${
           isToggling
             ? 'bg-gray-400 text-white focus-visible:ring-gray-400'
-            : isScrapingActive 
-            ? 'bg-red-600 text-white hover:bg-red-700 focus-visible:ring-red-500' 
+            : isScrapingActive
+            ? 'bg-red-600 text-white hover:bg-red-700 focus-visible:ring-red-500'
+            : !eventType
+            ? 'bg-amber-400 text-white focus-visible:ring-amber-400'
             : 'bg-gradient-to-r from-blue-500 to-purple-600 text-white hover:from-blue-600 hover:to-purple-700 focus-visible:ring-blue-500'
         }`}
         style={{ touchAction: 'manipulation' }}
@@ -198,6 +215,8 @@ export default function EventTableActions({
             <Square size={11} aria-hidden="true" />
             <span>Stop</span>
           </>
+        ) : !eventType ? (
+          <span>Set Type</span>
         ) : (
           <>
             <Play size={11} aria-hidden="true" />
@@ -205,6 +224,11 @@ export default function EventTableActions({
           </>
         )}
       </button>
+      {toggleError && (
+        <div className="absolute z-50 right-0 top-full mt-1 w-64 p-2 text-[11px] bg-amber-50 border border-amber-200 text-amber-800 rounded shadow-lg">
+          {toggleError}
+        </div>
+      )}
 
       {/* Delete Confirmation Modal – rendered via portal to avoid table stacking context */}
       {showDeleteConfirm && mounted && createPortal(

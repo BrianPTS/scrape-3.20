@@ -81,6 +81,7 @@ interface VSProd {
 interface ImportState {
   mappingId: string;
   percentage: number;
+  eventType: 'NFL' | 'MLB' | 'NHL' | 'NBA' | 'OTHER' | '';
   status: 'idle' | 'importing' | 'success' | 'error';
   error?: string;
   vividSearchUrl?: string;
@@ -550,12 +551,17 @@ export default function ImportEventsClient({
       if (!urlEventId || !/^[0-9A-Fa-f]+$/.test(urlEventId)) {
         throw new Error('Could not resolve Ticketmaster hex Event ID — this event cannot be imported');
       }
+      const selectedType = imports[event.id]?.eventType || '';
+      if (!selectedType) {
+        throw new Error('Please select an event type (NFL/MLB/NHL/NBA/OTHER) before importing.');
+      }
       const eventData = {
         URL: finalUrl, Event_ID: urlEventId, Event_Name: event.name,
         Event_DateTime: eventDateTime, Venue: event.venue, Zone: 'none',
         Available_Seats: 0, Skip_Scraping: true, inHandDate: inHandDt.toISOString(),
         mapping_id: mappingId, priceIncreasePercentage: imports[event.id]?.percentage ?? 30,
         standardMarkupAdjustment: 0, resaleMarkupAdjustment: 0,
+        eventType: selectedType,
       };
       const result = await createEvent(eventData as Parameters<typeof createEvent>[0]);
       if (result.error) throw new Error(result.error);
@@ -571,7 +577,7 @@ export default function ImportEventsClient({
   /* ---- Event Card ---- */
   const renderEventCard = (event: TMEvent, index: number) => {
     const listed = listedEvents[event.id];
-    const impState = imports[event.id] || { mappingId: '', percentage: 30, status: 'idle' };
+    const impState = imports[event.id] || { mappingId: '', percentage: 30, eventType: '', status: 'idle' };
     const isImported = impState.status === 'success';
     const isImporting = impState.status === 'importing';
     const isListed = !!listed;
@@ -813,10 +819,29 @@ export default function ImportEventsClient({
                     </div>
                     <span className="text-[10px] text-slate-400 font-medium whitespace-nowrap">Markup</span>
                   </div>
-                  <button onClick={() => handleImport(event)} disabled={isImporting}
-                    className="w-full inline-flex items-center justify-center gap-1.5 px-4 py-2 bg-gradient-to-r from-purple-600 to-indigo-600 text-white text-sm font-medium rounded-lg hover:from-purple-700 hover:to-indigo-700 disabled:opacity-50 transition-all shadow-sm shadow-purple-200">
+                  {/* Event Type selector — required before import */}
+                  <div className="flex items-center gap-2">
+                    <select
+                      value={impState.eventType || ''}
+                      onChange={e => updateImportState(event.id, { eventType: e.target.value as ImportState['eventType'], status: 'idle', error: undefined })}
+                      disabled={isImporting}
+                      className={`flex-1 px-3 py-2 border rounded-lg text-sm focus:ring-2 focus:ring-purple-500 focus:border-transparent disabled:bg-slate-50 transition-all ${
+                        !impState.eventType ? 'border-amber-300 bg-amber-50 text-amber-700' : 'border-slate-200 text-slate-700'
+                      }`}
+                    >
+                      <option value="">Select Event Type *</option>
+                      <option value="NFL">NFL</option>
+                      <option value="MLB">MLB</option>
+                      <option value="NHL">NHL</option>
+                      <option value="NBA">NBA</option>
+                      <option value="OTHER">Other</option>
+                    </select>
+                    <span className="text-[10px] text-slate-400 font-medium whitespace-nowrap">Type</span>
+                  </div>
+                  <button onClick={() => handleImport(event)} disabled={isImporting || !impState.eventType}
+                    className="w-full inline-flex items-center justify-center gap-1.5 px-4 py-2 bg-gradient-to-r from-purple-600 to-indigo-600 text-white text-sm font-medium rounded-lg hover:from-purple-700 hover:to-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-sm shadow-purple-200">
                     {isImporting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Import className="w-3.5 h-3.5" />}
-                    {isImporting ? 'Importing...' : 'Import Event'}
+                    {isImporting ? 'Importing...' : !impState.eventType ? 'Select Event Type First' : 'Import Event'}
                   </button>
                   {/* Ambiguous: multiple VS events on same date — let user pick */}
                   {impState.ambiguousProductions && impState.ambiguousProductions.length > 0 && (

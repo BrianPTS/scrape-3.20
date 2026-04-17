@@ -24,6 +24,7 @@ interface EventsTableControlsProps {
     dateTo?: string;
     venue?: string;
     scrapingStatus?: string;
+    eventType?: string;
     sortBy?: string;
     seatRange?: {
       min?: string;
@@ -267,6 +268,26 @@ export default function EventsTableControls({
                 <option value="">All Status</option>
                 <option value="active">Active (scraping on)</option>
                 <option value="inactive">Inactive (scraping off)</option>
+              </select>
+            </div>
+
+            {/* Event Type */}
+            <div className="space-y-2">
+              <label className="block text-xs font-semibold text-gray-600 uppercase tracking-wide">
+                Event Type
+              </label>
+              <select
+                className="w-full px-2.5 py-1.5 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white"
+                value={localFilters.eventType || ''}
+                onChange={(e) => handleFilterChange('eventType', e.target.value)}
+              >
+                <option value="">All Types</option>
+                <option value="NFL">NFL</option>
+                <option value="MLB">MLB</option>
+                <option value="NHL">NHL</option>
+                <option value="NBA">NBA</option>
+                <option value="OTHER">Other</option>
+                <option value="UNSET">Not Set</option>
               </select>
             </div>
 

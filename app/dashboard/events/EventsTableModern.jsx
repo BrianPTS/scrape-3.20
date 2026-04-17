@@ -110,10 +110,30 @@ const EventsTableModern = function EventsTableModern({ data, toggleScraping, sea
         </div>
       ),
     },
-    { 
-      name: <Header title="Event Date" description="Scheduled event date" icon={<Calendar size={14} />} />, 
-      selector: r => r.Event_DateTime, 
-      sortable: true, 
+    {
+      name: <Header title="Type" description="Sport / category" />,
+      selector: r => r.eventType || 'UNSET',
+      sortable: true,
+      width: '90px',
+      cell: r => {
+        const t = r.eventType;
+        const classes = {
+          NFL:   'bg-red-50 text-red-700 border-red-200',
+          MLB:   'bg-blue-50 text-blue-700 border-blue-200',
+          NHL:   'bg-slate-50 text-slate-700 border-slate-200',
+          NBA:   'bg-orange-50 text-orange-700 border-orange-200',
+          OTHER: 'bg-violet-50 text-violet-700 border-violet-200',
+        };
+        if (!t) {
+          return <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wide bg-amber-50 text-amber-700 border border-amber-200">Not Set</span>;
+        }
+        return <span className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wide border ${classes[t] || classes.OTHER}`}>{t}</span>;
+      },
+    },
+    {
+      name: <Header title="Event Date" description="Scheduled event date" icon={<Calendar size={14} />} />,
+      selector: r => r.Event_DateTime,
+      sortable: true,
       width: '150px',
       cell: r => (
         <div className="text-center">
