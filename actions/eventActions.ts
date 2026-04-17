@@ -33,10 +33,10 @@ function escapeRegex(str: string): string {
 export async function createEvent(eventData: Partial<Event>) {
   await dbConnect();
   try {
-    // Block Rhode Island events
+    // Block Maine events
     const venue = ((eventData as any).Venue || '').trim();
-    if (/,\s*RI$/i.test(venue)) {
-      return { error: 'Rhode Island events are not allowed.' };
+    if (/,\s*ME$/i.test(venue)) {
+      return { error: 'Maine events are not allowed.' };
     }
 
     // Block Greek Theatre, Los Angeles — we never want events at this venue
