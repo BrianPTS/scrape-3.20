@@ -567,3 +567,59 @@ export async function bulkSetPricingStrategy(
     };
   }
 }
+
+/**
+ * Bulk-assign eventType to all events that currently have eventType=null.
+ * Uses venue name and event name to auto-detect the sport.
+ * Returns { assigned, skipped, total } counts.
+ */
+export async function bulkAssignEventTypes() {
+  const { detectEventType } = await import('@/lib/venueMapping');
+  await dbConnect();
+  try {
+    const untyped = await Event.find({
+      $or: [{ eventType: null }, { eventType: { $exists: false } }],
+    }).select('_id Event_Name Venue eventType').lean() as Array<{
+      _id: any; Event_Name: string; Venue: string; eventType: string | null;
+    }>;
+
+    let assigned = 0;
+    let skipped = 0;
+    const results: Array<{ id: string; name: string; venue: string; detectedType: string }> = [];
+
+    for (const event of untyped) {
+      const detected = detectEventType(event.Venue, event.Event_Name);
+      if (detected) {
+        await Event.updateOne({ _id: event._id }, { $set: { eventType: detected } });
+        assigned++;
+        results.push({
+          id: String(event._id),
+          name: event.Event_Name,
+          venue: event.Venue,
+          detectedType: detected,
+        });
+      } else {
+        skipped++;
+      }
+    }
+
+    console.log(
+      `[bulkAssignEventTypes] Done: ${assigned} assigned, ${skipped} skipped (unrecognized), ${untyped.length} total checked`
+    );
+
+    return {
+      success: true,
+      total: untyped.length,
+      assigned,
+      skipped,
+      results: results.slice(0, 100),
+    };
+  } catch (error) {
+    console.error('Error bulk-assigning event types:', error);
+    return {
+      success: false,
+      error: (error as Error).message || 'Failed to bulk-assign',
+      total: 0, assigned: 0, skipped: 0,
+    };
+  }
+}

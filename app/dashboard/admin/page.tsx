@@ -2,7 +2,8 @@
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { Shield, Eye, EyeOff, Ban, Lock, Check, AlertTriangle } from 'lucide-react';
+import { Shield, Eye, EyeOff, Ban, Lock, Check, AlertTriangle, Zap } from 'lucide-react';
+import { bulkAssignEventTypes } from '@/actions/eventActions';
 
 type FlagState = 'enabled' | 'hidden' | 'disabled';
 
@@ -293,6 +294,9 @@ export default function AdminPage() {
         </button>
       </div>
 
+      {/* Bulk Assign Event Types */}
+      <BulkAssignSection />
+
       {/* Legend */}
       <div className="flex items-center gap-4 text-xs">
         {STATE_ORDER.map(state => {
@@ -370,6 +374,81 @@ export default function AdminPage() {
           </div>
         </div>
       ))}
+    </div>
+  );
+}
+
+function BulkAssignSection() {
+  const [running, setRunning] = useState(false);
+  const [result, setResult] = useState<{
+    success: boolean; total: number; assigned: number; skipped: number;
+    results?: Array<{ name: string; venue: string; detectedType: string }>;
+    error?: string;
+  } | null>(null);
+
+  const handleRun = async () => {
+    setRunning(true);
+    setResult(null);
+    try {
+      const res = await bulkAssignEventTypes();
+      setResult(res as typeof result);
+    } catch (err) {
+      setResult({ success: false, total: 0, assigned: 0, skipped: 0, error: (err as Error).message });
+    } finally {
+      setRunning(false);
+    }
+  };
+
+  return (
+    <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
+      <div className="flex items-center justify-between mb-4">
+        <div>
+          <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2">
+            <Zap className="w-5 h-5 text-amber-500" /> Bulk Assign Event Types
+          </h2>
+          <p className="text-sm text-slate-500 mt-0.5">
+            Auto-detect NFL / MLB / NHL / NBA from venue and event names for all events with no type set.
+          </p>
+        </div>
+        <button
+          onClick={handleRun}
+          disabled={running}
+          className="px-4 py-2 bg-gradient-to-r from-amber-500 to-orange-500 text-white font-semibold text-sm rounded-xl hover:from-amber-600 hover:to-orange-600 disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-sm flex items-center gap-2"
+        >
+          {running ? (
+            <div className="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent" />
+          ) : (
+            <Zap className="w-4 h-4" />
+          )}
+          {running ? 'Running...' : 'Run Bulk Assign'}
+        </button>
+      </div>
+      {result && (
+        <div className={`rounded-xl p-4 text-sm ${result.success ? 'bg-emerald-50 border border-emerald-200' : 'bg-red-50 border border-red-200'}`}>
+          {result.success ? (
+            <>
+              <p className="font-semibold text-emerald-700 mb-1">
+                Done — {result.assigned} events assigned, {result.skipped} skipped (unrecognized), {result.total} total checked
+              </p>
+              {result.results && result.results.length > 0 && (
+                <div className="mt-3 max-h-48 overflow-y-auto space-y-1">
+                  {result.results.map((r, i) => (
+                    <div key={i} className="flex items-center gap-2 text-xs text-slate-600">
+                      <span className={`inline-block w-10 text-center font-bold rounded px-1 py-0.5 text-[10px] ${
+                        { NFL: 'bg-red-100 text-red-700', MLB: 'bg-blue-100 text-blue-700', NHL: 'bg-slate-100 text-slate-700', NBA: 'bg-orange-100 text-orange-700' }[r.detectedType] || 'bg-violet-100 text-violet-700'
+                      }`}>{r.detectedType}</span>
+                      <span className="truncate">{r.name}</span>
+                      <span className="text-slate-400 shrink-0">@ {r.venue}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </>
+          ) : (
+            <p className="text-red-700">Failed: {result.error}</p>
+          )}
+        </div>
+      )}
     </div>
   );
 }

@@ -3,6 +3,7 @@
 import React, { useState, useCallback, useTransition } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { createEvent } from '@/actions/eventActions';
+import { detectEventType } from '@/lib/venueMapping';
 import Image from 'next/image';
 import {
   Search, Import, Calendar, MapPin, ChevronLeft, ChevronRight,
@@ -577,7 +578,11 @@ export default function ImportEventsClient({
   /* ---- Event Card ---- */
   const renderEventCard = (event: TMEvent, index: number) => {
     const listed = listedEvents[event.id];
-    const impState = imports[event.id] || { mappingId: '', percentage: 30, eventType: '', status: 'idle' };
+    const impState = imports[event.id] || {
+      mappingId: '', percentage: 30,
+      eventType: detectEventType(event.venue, event.name) || '',
+      status: 'idle',
+    };
     const isImported = impState.status === 'success';
     const isImporting = impState.status === 'importing';
     const isListed = !!listed;
