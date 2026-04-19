@@ -161,12 +161,68 @@ export const EVENT_NAME_PATTERNS: Array<{ pattern: RegExp; type: 'NFL' | 'MLB' |
   { pattern: /\bNBA\b/, type: 'NBA' },
 ];
 
+// ── Entertainment / non-sport signals ──────────────────────────────
+// If an event name contains any of these, the venue is IGNORED and
+// we return null — it's almost certainly a concert, comedy show,
+// family performance, or other non-sport event. The user picks OTHER.
+export const ENTERTAINMENT_PATTERNS: RegExp[] = [
+  // Music / concert
+  /\bconcert\b/i, /\bin concert\b/i, /\btour\b/i, /\bworld tour\b/i,
+  /\blive\b/i, /\bfeat\.?\b/i, /\bfeaturing\b/i, /\bacoustic\b/i,
+  /\bresidency\b/i, /\bunplugged\b/i,
+  // Comedy
+  /\bcomedy\b/i, /\bstand.?up\b/i,
+  // Theater / stage
+  /\bbroadway\b/i, /\bmusical\b/i, /\btheatre\b/i, /\bballet\b/i,
+  /\bopera\b/i, /\bshakespeare\b/i,
+  // Family / kid shows
+  /\bdisney\b/i, /\bdisney on ice\b/i, /\bsesame street\b/i,
+  /\bpaw patrol\b/i, /\bmonster jam\b/i, /\bon ice\b/i, /\bcircus\b/i,
+  /\bharlem globetrotters\b/i, /\bcirque du soleil\b/i,
+  // Wrestling / combat (tracked separately, not as major-sport)
+  /\bwwe\b/i, /\baew\b/i, /\bufc\b/i, /\bmma\b/i, /\bboxing night\b/i,
+];
+
+// ── Game signals — indicate this IS a sporting event ──────────────
+// Used to promote a venue match to confident when the event name alone
+// doesn't have a team keyword but still clearly looks like a game.
+export const GAME_SIGNAL_PATTERNS: RegExp[] = [
+  /\bvs\.?\s+/i, /\bv\.\s+/i,             // "Team vs Team"
+  /\bgame\s*\d+/i, /\bgm\s*\d+/i,          // "Game 1", "Gm 1"
+  /\bround\s*\d+/i, /\brd\s*\d+/i,         // "Round 1", "Rd 1"
+  /\bplayoffs?\b/i, /\bsemifinals?\b/i, /\bquarterfinals?\b/i,
+  /\bworld series\b/i, /\bsuper bowl\b/i, /\bstanley cup\b/i,
+  /\bhome\s*(gm|game)\b/i,
+  /\bspring training\b/i, /\bopening day\b/i, /\ball.?star\b/i,
+];
+
+function hasEntertainmentSignal(name: string): boolean {
+  return ENTERTAINMENT_PATTERNS.some(rx => rx.test(name));
+}
+
+function hasGameSignal(name: string): boolean {
+  return GAME_SIGNAL_PATTERNS.some(rx => rx.test(name));
+}
+
 // ── Main entry point ───────────────────────────────────────────────
 
 /**
  * Detect eventType from venue name and/or event name.
  * Returns 'NFL'|'MLB'|'NHL'|'NBA' if confident, null otherwise.
- * Does NOT return 'OTHER' — callers choose whether to default to that.
+ *
+ * Priority order (strict, conservative):
+ *   1. Entertainment signal in event name (concert, comedy, etc.)
+ *      → return null. The venue doesn't matter — concerts at Yankee
+ *      Stadium aren't MLB.
+ *   2. Team name or league acronym in event name → return that sport.
+ *      This is the authoritative signal.
+ *   3. Game signal (vs, game #, playoffs, etc.) + venue match → return
+ *      venue's sport. Used when the event name is sport-shaped but
+ *      doesn't mention a specific team (e.g. "Playoffs Home Game 1").
+ *   4. Everything else → null. User picks manually.
+ *
+ * Critically: a venue match ALONE is never enough. "Jay-Z at Yankee
+ * Stadium" returns null (not MLB) because no sport signal is present.
  */
 export function detectEventType(
   venue: string | undefined | null,
@@ -175,20 +231,25 @@ export function detectEventType(
   const v = (venue || '').trim();
   const n = (eventName || '').trim();
 
-  // 1. Check venue name (case-insensitive exact match)
-  if (v) {
+  // 1. Entertainment signals override everything. Concert at a sports
+  //    stadium is still a concert.
+  if (hasEntertainmentSignal(n)) return null;
+
+  // 2. Team name or league acronym in event name — authoritative.
+  for (const { pattern, type } of EVENT_NAME_PATTERNS) {
+    if (pattern.test(n)) return type;
+  }
+
+  // 3. Game signal (vs, game #, playoffs, etc.) + matching venue.
+  //    This catches sport-shaped events like "Home Game 1" or "Playoffs
+  //    Round 1" at a known single-sport venue.
+  if (v && hasGameSignal(n)) {
     const vLower = v.toLowerCase();
     for (const [venueName, sport] of Object.entries(VENUE_TO_SPORT)) {
       if (venueName.toLowerCase() === vLower) return sport;
     }
   }
 
-  // 2. Check event name keywords (covers shared venues + generic names)
-  if (n) {
-    for (const { pattern, type } of EVENT_NAME_PATTERNS) {
-      if (pattern.test(n)) return type;
-    }
-  }
-
+  // 4. No confident signal — user picks manually.
   return null;
 }
