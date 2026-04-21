@@ -290,10 +290,12 @@ const _venueTzCache = new Map<string, string | null>();
 let _sectionOrderCounts = new Map<string, number>();
 let _sectionListingCounts = new Map<string, number>();
 
-// Cheapest resale price point per event (populated per CSV run)
-// Key: mapping_id → min resale cost (rounded to 2 decimals).
-// Standard listings are NOT subject to this exclusion.
+// Cheapest price point per event, per tag (populated per CSV run).
+// Key: mapping_id → min cost (rounded to 2 decimals).
+// Applied independently to standard and resale pools so the lowest
+// "get-in" listing on each side is excluded.
 let _eventMinCostResale = new Map<string, number>();
+let _eventMinCostStandard = new Map<string, number>();
 
 // ── Global: stop events with seats <= threshold & clear their inventory ──
 export async function stopLowSeatEvents(): Promise<{ stopped: number; eventIds: string[] }> {
@@ -499,46 +501,58 @@ export async function generateInventoryCsv(eventUpdateFilterMinutes: number = 0)
         console.error('[CSV] Section listing count error:', (err as Error).message);
       }
 
-      // Pre-compute cheapest RESALE cost per event. Standard listings are NOT
-      // subject to this exclusion. Source of truth is the TM facet —
-      // offer.inventoryType is stored directly on inventory.inventoryTag.
-      // Falls back to splitType for legacy records that don't have the tag yet.
+      // Pre-compute cheapest cost per event, split by inventory tag. Source
+      // of truth is the TM facet — offer.inventoryType, stored directly on
+      // inventory.inventoryTag. Falls back to splitType for legacy records
+      // that don't have the tag yet (NEVERLEAVEONE → standard, else resale).
+      // Both standard and resale pools get their lowest "get-in" excluded.
       const eventMinCostResale = new Map<string, number>();
+      const eventMinCostStandard = new Map<string, number>();
       try {
         const minCosts = await ConsecutiveGroup.aggregate([
+          { $match: { mapping_id: { $in: eventMappingIds } } },
           {
-            $match: {
-              mapping_id: { $in: eventMappingIds },
-              $or: [
-                { 'inventory.inventoryTag': 'resale' },
-                // Legacy fallback: no inventoryTag, infer from splitType
-                {
-                  'inventory.inventoryTag': { $in: [null, undefined] },
-                  'inventory.splitType': { $ne: 'NEVERLEAVEONE' },
-                },
-              ],
+            $addFields: {
+              _tag: {
+                $cond: [
+                  { $in: ['$inventory.inventoryTag', ['standard', 'resale']] },
+                  '$inventory.inventoryTag',
+                  {
+                    $cond: [
+                      { $eq: ['$inventory.splitType', 'NEVERLEAVEONE'] },
+                      'standard',
+                      'resale',
+                    ],
+                  },
+                ],
+              },
             },
           },
           {
             $group: {
-              _id: '$mapping_id',
+              _id: { mapping_id: '$mapping_id', tag: '$_tag' },
               minCost: { $min: '$inventory.cost' },
             },
           },
         ]);
         for (const row of minCosts) {
-          if (!row._id || row.minCost == null) continue;
-          eventMinCostResale.set(row._id, Number(row.minCost.toFixed(2)));
+          const mid = row._id?.mapping_id;
+          const tag = row._id?.tag;
+          if (!mid || row.minCost == null) continue;
+          const rounded = Number(row.minCost.toFixed(2));
+          if (tag === 'standard') eventMinCostStandard.set(mid, rounded);
+          else if (tag === 'resale') eventMinCostResale.set(mid, rounded);
         }
-        console.log(`[CSV] Resale min-cost exclusion: ${eventMinCostResale.size} events computed`);
+        console.log(`[CSV] Min-cost exclusion: ${eventMinCostResale.size} resale, ${eventMinCostStandard.size} standard events computed`);
       } catch (err) {
-        console.error('[CSV] Resale min-cost pre-computation error:', (err as Error).message);
+        console.error('[CSV] Min-cost pre-computation error:', (err as Error).message);
       }
 
       // Expose sell-through maps to processBatch via module scope
       _sectionOrderCounts = sectionOrderCounts;
       _sectionListingCounts = sectionListingCounts;
       _eventMinCostResale = eventMinCostResale;
+      _eventMinCostStandard = eventMinCostStandard;
 
     // Projection — no longer need event_std_adj etc from $lookup
     const projection = {
@@ -902,19 +916,18 @@ async function processBatch(batch: ConsecutiveGroupDocument[]): Promise<CsvRow[]
     const section = (doc.inventory?.section || '').toLowerCase();
     if (section.includes('table')) return false;
 
-    // Exclude cheapest RESALE price point per event. Standard listings are
-    // NOT affected by this filter. Source of truth is TM's offer.inventoryType,
-    // stored on inventory.inventoryTag. Falls back to splitType for legacy
-    // records. Prevents racing to the bottom on resale "get-in" tickets,
-    // which carry a higher level of risk.
+    // Exclude the cheapest price point per event, independently for standard
+    // and resale. Source of truth is TM's offer.inventoryType, stored on
+    // inventory.inventoryTag. Falls back to splitType for legacy records.
+    // Prevents racing to the bottom on "get-in" tickets in either pool.
     const tag = doc.inventory?.inventoryTag
       ?? (doc.inventory?.splitType === 'NEVERLEAVEONE' ? 'standard' : 'resale');
-    if (tag === 'resale') {
-      const mappingId = doc.mapping_id || '';
-      const docCost = Number((doc.inventory?.cost || 0).toFixed(2));
-      const minCost = _eventMinCostResale.get(mappingId);
-      if (minCost != null && docCost === minCost) return false;
-    }
+    const mappingId = doc.mapping_id || '';
+    const docCost = Number((doc.inventory?.cost || 0).toFixed(2));
+    const minCost = tag === 'standard'
+      ? _eventMinCostStandard.get(mappingId)
+      : _eventMinCostResale.get(mappingId);
+    if (minCost != null && docCost === minCost) return false;
 
     return true;
   }).map(doc => {
