@@ -298,6 +298,8 @@ let _prevFloorStandard = new Map<string, number>();
 // Previous listing IDs: mapping_id → Set of inventoryIds from last run
 let _prevIdsResale = new Map<string, Set<number>>();
 let _prevIdsStandard = new Map<string, Set<number>>();
+// Previous per-listing costs: inventoryId → cost from last run (for price-drop detection)
+let _prevListingCosts = new Map<number, number>();
 // Probation lookup: inventoryId → { runCount }
 let _probationMap = new Map<number, { runCount: number }>();
 // Settings for this run
@@ -311,27 +313,29 @@ let _probationNew: Array<{ inventoryId: number; mappingId: string; tag: string; 
 
 async function _saveGetInGuardState(): Promise<void> {
   // Build new per-event per-pool floor from what was included this run
-  const floorMap = new Map<string, { minCost: number; ids: number[] }>();
+  const floorMap = new Map<string, { minCost: number; ids: number[]; costs: Map<string, number> }>();
   for (const item of _thisRunIncluded) {
     if (item.inventoryId == null) continue;
     const key = `${item.mappingId}|${item.tag}`;
     const entry = floorMap.get(key);
     const rounded = Number(item.cost.toFixed(2));
     if (!entry) {
-      floorMap.set(key, { minCost: rounded, ids: [item.inventoryId] });
+      floorMap.set(key, { minCost: rounded, ids: [item.inventoryId], costs: new Map([[String(item.inventoryId), rounded]]) });
     } else {
       entry.ids.push(item.inventoryId);
+      entry.costs.set(String(item.inventoryId), rounded);
       if (rounded < entry.minCost) entry.minCost = rounded;
     }
   }
 
-  // Upsert price floors
+  // Upsert price floors (including per-listing costs for price-drop detection)
   const bulkFloor = Array.from(floorMap.entries()).map(([key, val]) => {
     const [mapping_id, tag] = key.split('|');
+    const listingCosts = Object.fromEntries(val.costs);
     return {
       updateOne: {
         filter: { mapping_id, tag },
-        update: { $set: { minCost: val.minCost, inventoryIds: val.ids, updatedAt: new Date() } },
+        update: { $set: { minCost: val.minCost, inventoryIds: val.ids, listingCosts, updatedAt: new Date() } },
         upsert: true,
       },
     };
@@ -590,6 +594,7 @@ export async function generateInventoryCsv(eventUpdateFilterMinutes: number = 0)
       const prevFloorStandard = new Map<string, number>();
       const prevIdsResale = new Map<string, Set<number>>();
       const prevIdsStandard = new Map<string, Set<number>>();
+      const prevCosts = new Map<number, number>();
       const probationMap = new Map<number, { runCount: number }>();
       try {
         const floors = await CsvPriceFloor.find({ mapping_id: { $in: eventMappingIds } }).lean();
@@ -598,12 +603,17 @@ export async function generateInventoryCsv(eventUpdateFilterMinutes: number = 0)
           const idMap = f.tag === 'standard' ? prevIdsStandard : prevIdsResale;
           map.set(f.mapping_id, f.minCost);
           idMap.set(f.mapping_id, new Set(f.inventoryIds || []));
+          if (f.listingCosts) {
+            for (const [id, cost] of (f.listingCosts instanceof Map ? f.listingCosts : Object.entries(f.listingCosts))) {
+              prevCosts.set(Number(id), Number(cost));
+            }
+          }
         }
         const probDocs = await ListingProbation.find({ mapping_id: { $in: eventMappingIds } }).lean();
         for (const p of probDocs as any[]) {
           probationMap.set(p.inventoryId, { runCount: p.runCount });
         }
-        console.log(`[CSV] Get-in guard: ${floors.length} floors loaded, ${probDocs.length} listings on probation`);
+        console.log(`[CSV] Get-in guard: ${floors.length} floors, ${prevCosts.size} listing costs, ${probDocs.length} probation`);
       } catch (err) {
         console.error('[CSV] Get-in guard load error:', (err as Error).message);
       }
@@ -615,6 +625,7 @@ export async function generateInventoryCsv(eventUpdateFilterMinutes: number = 0)
       _prevFloorStandard = prevFloorStandard;
       _prevIdsResale = prevIdsResale;
       _prevIdsStandard = prevIdsStandard;
+      _prevListingCosts = prevCosts;
       _probationMap = probationMap;
       _getInDropPct = schedulerSettings?.getInDropPct ?? 15;
       _getInProbationRuns = schedulerSettings?.getInProbationRuns ?? 10;
@@ -987,8 +998,9 @@ async function processBatch(batch: ConsecutiveGroupDocument[]): Promise<CsvRow[]
     const section = (doc.inventory?.section || '').toLowerCase();
     if (section.includes('table')) return false;
 
-    // Dynamic get-in guard: only exclude NEW listings that dropped X% below
-    // the previous run's floor AND haven't survived enough probation runs.
+    // Dynamic get-in guard: exclude listings that are suspiciously cheap —
+    // either brand-new or existing with a drastic price drop — until they
+    // survive enough consecutive CSV runs on probation.
     const tag = doc.inventory?.inventoryTag
       ?? (doc.inventory?.splitType === 'NEVERLEAVEONE' ? 'standard' : 'resale');
     const mappingId = doc.mapping_id || '';
@@ -1002,9 +1014,13 @@ async function processBatch(batch: ConsecutiveGroupDocument[]): Promise<CsvRow[]
       : _prevIdsResale.get(mappingId);
 
     if (prevFloor != null && invId != null) {
+      const floorThreshold = prevFloor * (1 - _getInDropPct / 100);
       const isNew = !prevIds || !prevIds.has(invId);
-      const threshold = prevFloor * (1 - _getInDropPct / 100);
-      if (isNew && docCost < threshold) {
+      const prevCost = _prevListingCosts.get(invId);
+      const hadPriceDrop = !isNew && prevCost != null
+        && docCost < prevCost * (1 - _getInDropPct / 100);
+
+      if ((isNew && docCost < floorThreshold) || hadPriceDrop) {
         const prob = _probationMap.get(invId);
         if (!prob) {
           _probationNew.push({ inventoryId: invId, mappingId, tag, cost: docCost });
@@ -1345,18 +1361,24 @@ export async function* generateInventoryCsvStream(
       const pFloorStandard = new Map<string, number>();
       const pIdsResale = new Map<string, Set<number>>();
       const pIdsStandard = new Map<string, Set<number>>();
+      const pCosts = new Map<number, number>();
       const pMap = new Map<number, { runCount: number }>();
       try {
         const floors = await CsvPriceFloor.find({ mapping_id: { $in: eventMappingIds } }).lean();
         for (const f of floors as any[]) {
           (f.tag === 'standard' ? pFloorStandard : pFloorResale).set(f.mapping_id, f.minCost);
           (f.tag === 'standard' ? pIdsStandard : pIdsResale).set(f.mapping_id, new Set(f.inventoryIds || []));
+          if (f.listingCosts) {
+            for (const [id, cost] of (f.listingCosts instanceof Map ? f.listingCosts : Object.entries(f.listingCosts))) {
+              pCosts.set(Number(id), Number(cost));
+            }
+          }
         }
         const probDocs = await ListingProbation.find({ mapping_id: { $in: eventMappingIds } }).lean();
         for (const p of probDocs as any[]) {
           pMap.set(p.inventoryId, { runCount: p.runCount });
         }
-        console.log(`[CSV-Stream] Get-in guard: ${floors.length} floors, ${probDocs.length} probation`);
+        console.log(`[CSV-Stream] Get-in guard: ${floors.length} floors, ${pCosts.size} listing costs, ${probDocs.length} probation`);
       } catch (err) {
         console.error('[CSV-Stream] Get-in guard load error:', (err as Error).message);
       }
@@ -1364,6 +1386,7 @@ export async function* generateInventoryCsvStream(
       _prevFloorStandard = pFloorStandard;
       _prevIdsResale = pIdsResale;
       _prevIdsStandard = pIdsStandard;
+      _prevListingCosts = pCosts;
       _probationMap = pMap;
       _getInDropPct = schedulerSettings?.getInDropPct ?? 15;
       _getInProbationRuns = schedulerSettings?.getInProbationRuns ?? 10;
