@@ -80,6 +80,18 @@ const schedulerSettingsSchema = new mongoose.Schema({
     enum: ['row', 'section'],
     default: 'section'
   },
+  getInDropPct: {
+    type: Number,
+    min: 0,
+    max: 100,
+    default: 15
+  },
+  getInProbationRuns: {
+    type: Number,
+    min: 1,
+    max: 100,
+    default: 10
+  },
   createdAt: {
     type: Date,
     default: Date.now

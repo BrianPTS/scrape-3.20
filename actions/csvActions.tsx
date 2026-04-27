@@ -7,6 +7,7 @@ import { Order } from '../models/orderModel';
 import { SchedulerSettings } from '../models/schedulerModel';
 import { AutoDeleteSettings } from '../models/autoDeleteModel';
 import { ExclusionRules } from '../models/exclusionRulesModel';
+import { CsvPriceFloor, ListingProbation } from '../models/getInGuardModel';
 import SyncService from '../lib/syncService';
 import { createErrorLog } from './errorLogActions';
 import { deleteExpiredEvents, getExpiredEventsStats, deletePassedEvents } from './autoDeleteActions';
@@ -290,12 +291,92 @@ const _venueTzCache = new Map<string, string | null>();
 let _sectionOrderCounts = new Map<string, number>();
 let _sectionListingCounts = new Map<string, number>();
 
-// Cheapest price point per event, per tag (populated per CSV run).
-// Key: mapping_id → min cost (rounded to 2 decimals).
-// Applied independently to standard and resale pools so the lowest
-// "get-in" listing on each side is excluded.
-let _eventMinCostResale = new Map<string, number>();
-let _eventMinCostStandard = new Map<string, number>();
+// Dynamic get-in guard (populated per CSV run from previous-run snapshots).
+// Previous floor: mapping_id → min cost from last CSV run
+let _prevFloorResale = new Map<string, number>();
+let _prevFloorStandard = new Map<string, number>();
+// Previous listing IDs: mapping_id → Set of inventoryIds from last run
+let _prevIdsResale = new Map<string, Set<number>>();
+let _prevIdsStandard = new Map<string, Set<number>>();
+// Probation lookup: inventoryId → { runCount }
+let _probationMap = new Map<number, { runCount: number }>();
+// Settings for this run
+let _getInDropPct = 15;
+let _getInProbationRuns = 10;
+// Accumulator: track which inventoryIds + costs are included this run (for saving new floor)
+let _thisRunIncluded: Array<{ inventoryId: number; mappingId: string; tag: string; cost: number }> = [];
+// Track probation events this run: inventoryIds that were held back or incremented
+let _probationTouched = new Set<number>();
+let _probationNew: Array<{ inventoryId: number; mappingId: string; tag: string; cost: number }> = [];
+
+async function _saveGetInGuardState(): Promise<void> {
+  // Build new per-event per-pool floor from what was included this run
+  const floorMap = new Map<string, { minCost: number; ids: number[] }>();
+  for (const item of _thisRunIncluded) {
+    if (item.inventoryId == null) continue;
+    const key = `${item.mappingId}|${item.tag}`;
+    const entry = floorMap.get(key);
+    const rounded = Number(item.cost.toFixed(2));
+    if (!entry) {
+      floorMap.set(key, { minCost: rounded, ids: [item.inventoryId] });
+    } else {
+      entry.ids.push(item.inventoryId);
+      if (rounded < entry.minCost) entry.minCost = rounded;
+    }
+  }
+
+  // Upsert price floors
+  const bulkFloor = Array.from(floorMap.entries()).map(([key, val]) => {
+    const [mapping_id, tag] = key.split('|');
+    return {
+      updateOne: {
+        filter: { mapping_id, tag },
+        update: { $set: { minCost: val.minCost, inventoryIds: val.ids, updatedAt: new Date() } },
+        upsert: true,
+      },
+    };
+  });
+  if (bulkFloor.length > 0) {
+    await CsvPriceFloor.bulkWrite(bulkFloor, { ordered: false });
+  }
+
+  // Insert new probation entries
+  if (_probationNew.length > 0) {
+    await ListingProbation.bulkWrite(
+      _probationNew.map(p => ({
+        updateOne: {
+          filter: { inventoryId: p.inventoryId },
+          update: {
+            $setOnInsert: { inventoryId: p.inventoryId, mapping_id: p.mappingId, tag: p.tag, cost: p.cost, runCount: 1, createdAt: new Date() },
+            $set: { updatedAt: new Date() },
+          },
+          upsert: true,
+        },
+      })),
+      { ordered: false }
+    );
+  }
+
+  // Increment runCount for existing probation entries that are still present
+  const toIncrement = Array.from(_probationTouched).filter(id => !_probationNew.some(p => p.inventoryId === id));
+  if (toIncrement.length > 0) {
+    await ListingProbation.updateMany(
+      { inventoryId: { $in: toIncrement } },
+      { $inc: { runCount: 1 }, $set: { updatedAt: new Date() } }
+    );
+  }
+
+  // Remove probation entries for listings that disappeared from scrape data
+  const allSeenIds = new Set([..._thisRunIncluded.map(i => i.inventoryId), ..._probationTouched]);
+  const staleProb = Array.from(_probationMap.keys()).filter(id => !allSeenIds.has(id));
+  if (staleProb.length > 0) {
+    await ListingProbation.deleteMany({ inventoryId: { $in: staleProb } });
+  }
+
+  const held = _probationTouched.size;
+  const graduated = _thisRunIncluded.filter(i => _probationMap.has(i.inventoryId)).length;
+  console.log(`[CSV] Get-in guard saved: ${bulkFloor.length} floors, ${_probationNew.length} new probation, ${held} held, ${graduated} graduated, ${staleProb.length} stale removed`);
+}
 
 // ── Global: stop events with seats <= threshold & clear their inventory ──
 export async function stopLowSeatEvents(): Promise<{ stopped: number; eventIds: string[] }> {
@@ -388,6 +469,9 @@ export async function generateInventoryCsv(eventUpdateFilterMinutes: number = 0)
 
     // Clear venue timezone cache at the start of each CSV generation run
     _venueTzCache.clear();
+
+    // Load scheduler settings once for the entire run
+    const schedulerSettings = await SchedulerSettings.findOne({}).lean() as any;
 
     // ── Stop low-seat events before generating CSV ──
     const lowSeatResult = await stopLowSeatEvents();
@@ -501,58 +585,42 @@ export async function generateInventoryCsv(eventUpdateFilterMinutes: number = 0)
         console.error('[CSV] Section listing count error:', (err as Error).message);
       }
 
-      // Pre-compute cheapest cost per event, split by inventory tag. Source
-      // of truth is the TM facet — offer.inventoryType, stored directly on
-      // inventory.inventoryTag. Falls back to splitType for legacy records
-      // that don't have the tag yet (NEVERLEAVEONE → standard, else resale).
-      // Both standard and resale pools get their lowest "get-in" excluded.
-      const eventMinCostResale = new Map<string, number>();
-      const eventMinCostStandard = new Map<string, number>();
+      // ── Dynamic get-in guard: load previous-run price floors + probation ──
+      const prevFloorResale = new Map<string, number>();
+      const prevFloorStandard = new Map<string, number>();
+      const prevIdsResale = new Map<string, Set<number>>();
+      const prevIdsStandard = new Map<string, Set<number>>();
+      const probationMap = new Map<number, { runCount: number }>();
       try {
-        const minCosts = await ConsecutiveGroup.aggregate([
-          { $match: { mapping_id: { $in: eventMappingIds } } },
-          {
-            $addFields: {
-              _tag: {
-                $cond: [
-                  { $in: ['$inventory.inventoryTag', ['standard', 'resale']] },
-                  '$inventory.inventoryTag',
-                  {
-                    $cond: [
-                      { $eq: ['$inventory.splitType', 'NEVERLEAVEONE'] },
-                      'standard',
-                      'resale',
-                    ],
-                  },
-                ],
-              },
-            },
-          },
-          {
-            $group: {
-              _id: { mapping_id: '$mapping_id', tag: '$_tag' },
-              minCost: { $min: '$inventory.cost' },
-            },
-          },
-        ]);
-        for (const row of minCosts) {
-          const mid = row._id?.mapping_id;
-          const tag = row._id?.tag;
-          if (!mid || row.minCost == null) continue;
-          const rounded = Number(row.minCost.toFixed(2));
-          if (tag === 'standard') eventMinCostStandard.set(mid, rounded);
-          else if (tag === 'resale') eventMinCostResale.set(mid, rounded);
+        const floors = await CsvPriceFloor.find({ mapping_id: { $in: eventMappingIds } }).lean();
+        for (const f of floors as any[]) {
+          const map = f.tag === 'standard' ? prevFloorStandard : prevFloorResale;
+          const idMap = f.tag === 'standard' ? prevIdsStandard : prevIdsResale;
+          map.set(f.mapping_id, f.minCost);
+          idMap.set(f.mapping_id, new Set(f.inventoryIds || []));
         }
-        console.log(`[CSV] Min-cost exclusion: ${eventMinCostResale.size} resale, ${eventMinCostStandard.size} standard events computed`);
+        const probDocs = await ListingProbation.find({ mapping_id: { $in: eventMappingIds } }).lean();
+        for (const p of probDocs as any[]) {
+          probationMap.set(p.inventoryId, { runCount: p.runCount });
+        }
+        console.log(`[CSV] Get-in guard: ${floors.length} floors loaded, ${probDocs.length} listings on probation`);
       } catch (err) {
-        console.error('[CSV] Min-cost pre-computation error:', (err as Error).message);
+        console.error('[CSV] Get-in guard load error:', (err as Error).message);
       }
 
-      // Expose sell-through maps to processBatch via module scope
+      // Expose to processBatch via module scope
       _sectionOrderCounts = sectionOrderCounts;
       _sectionListingCounts = sectionListingCounts;
-      _eventMinCostResale = eventMinCostResale;
-      _eventMinCostStandard = eventMinCostStandard;
+      _prevFloorResale = prevFloorResale;
+      _prevFloorStandard = prevFloorStandard;
+      _prevIdsResale = prevIdsResale;
+      _prevIdsStandard = prevIdsStandard;
+      _probationMap = probationMap;
+      _getInDropPct = schedulerSettings?.getInDropPct ?? 15;
+      _getInProbationRuns = schedulerSettings?.getInProbationRuns ?? 10;
+      _thisRunIncluded = [];
+      _probationTouched = new Set();
+      _probationNew = [];
 
     // Projection — no longer need event_std_adj etc from $lookup
     const projection = {
@@ -679,7 +747,6 @@ export async function generateInventoryCsv(eventUpdateFilterMinutes: number = 0)
       console.log(`[CSV] Exclusion rules applied in ${Date.now() - exclStart}ms`);
 
       // Apply min seat filter (row-based or section-based depending on mode)
-      const schedulerSettings = await SchedulerSettings.findOne({}).lean() as any;
       const minSeatFilter = schedulerSettings?.minSeatFilter ?? 0;
       const minSeatFilterMode = schedulerSettings?.minSeatFilterMode ?? 'section';
       if (minSeatFilter > 0) {
@@ -717,8 +784,12 @@ export async function generateInventoryCsv(eventUpdateFilterMinutes: number = 0)
       
       console.log(`[CSV] ✅ Generation completed in ${duration}ms for ${filteredRecords.length} records (Peak memory: ${memoryUsage}MB)`);
 
-      return { 
-        success: true, 
+      // ── Save get-in guard state for next run ──
+      await _saveGetInGuardState().catch(err =>
+        console.error('[CSV] Get-in guard save error:', err.message));
+
+      return {
+        success: true,
         csv: csvString,
         recordCount: filteredRecords.length,
         excludedCount: records.length - filteredRecords.length,
@@ -916,19 +987,38 @@ async function processBatch(batch: ConsecutiveGroupDocument[]): Promise<CsvRow[]
     const section = (doc.inventory?.section || '').toLowerCase();
     if (section.includes('table')) return false;
 
-    // Exclude the cheapest price point per event, independently for standard
-    // and resale. Source of truth is TM's offer.inventoryType, stored on
-    // inventory.inventoryTag. Falls back to splitType for legacy records.
-    // Prevents racing to the bottom on "get-in" tickets in either pool.
+    // Dynamic get-in guard: only exclude NEW listings that dropped X% below
+    // the previous run's floor AND haven't survived enough probation runs.
     const tag = doc.inventory?.inventoryTag
       ?? (doc.inventory?.splitType === 'NEVERLEAVEONE' ? 'standard' : 'resale');
     const mappingId = doc.mapping_id || '';
+    const invId = doc.inventory?.inventoryId as number;
     const docCost = Number((doc.inventory?.cost || 0).toFixed(2));
-    const minCost = tag === 'standard'
-      ? _eventMinCostStandard.get(mappingId)
-      : _eventMinCostResale.get(mappingId);
-    if (minCost != null && docCost === minCost) return false;
+    const prevFloor = tag === 'standard'
+      ? _prevFloorStandard.get(mappingId)
+      : _prevFloorResale.get(mappingId);
+    const prevIds = tag === 'standard'
+      ? _prevIdsStandard.get(mappingId)
+      : _prevIdsResale.get(mappingId);
 
+    if (prevFloor != null && invId != null) {
+      const isNew = !prevIds || !prevIds.has(invId);
+      const threshold = prevFloor * (1 - _getInDropPct / 100);
+      if (isNew && docCost < threshold) {
+        const prob = _probationMap.get(invId);
+        if (!prob) {
+          _probationNew.push({ inventoryId: invId, mappingId, tag, cost: docCost });
+          _probationTouched.add(invId);
+          return false;
+        }
+        if (prob.runCount < _getInProbationRuns) {
+          _probationTouched.add(invId);
+          return false;
+        }
+      }
+    }
+
+    _thisRunIncluded.push({ inventoryId: invId, mappingId, tag, cost: docCost });
     return true;
   }).map(doc => {
     const inventory = doc.inventory;
@@ -1249,6 +1339,39 @@ export async function* generateInventoryCsvStream(
       });
     }
 
+    // ── Dynamic get-in guard: load previous-run price floors + probation ──
+    {
+      const pFloorResale = new Map<string, number>();
+      const pFloorStandard = new Map<string, number>();
+      const pIdsResale = new Map<string, Set<number>>();
+      const pIdsStandard = new Map<string, Set<number>>();
+      const pMap = new Map<number, { runCount: number }>();
+      try {
+        const floors = await CsvPriceFloor.find({ mapping_id: { $in: eventMappingIds } }).lean();
+        for (const f of floors as any[]) {
+          (f.tag === 'standard' ? pFloorStandard : pFloorResale).set(f.mapping_id, f.minCost);
+          (f.tag === 'standard' ? pIdsStandard : pIdsResale).set(f.mapping_id, new Set(f.inventoryIds || []));
+        }
+        const probDocs = await ListingProbation.find({ mapping_id: { $in: eventMappingIds } }).lean();
+        for (const p of probDocs as any[]) {
+          pMap.set(p.inventoryId, { runCount: p.runCount });
+        }
+        console.log(`[CSV-Stream] Get-in guard: ${floors.length} floors, ${probDocs.length} probation`);
+      } catch (err) {
+        console.error('[CSV-Stream] Get-in guard load error:', (err as Error).message);
+      }
+      _prevFloorResale = pFloorResale;
+      _prevFloorStandard = pFloorStandard;
+      _prevIdsResale = pIdsResale;
+      _prevIdsStandard = pIdsStandard;
+      _probationMap = pMap;
+      _getInDropPct = schedulerSettings?.getInDropPct ?? 15;
+      _getInProbationRuns = schedulerSettings?.getInProbationRuns ?? 10;
+      _thisRunIncluded = [];
+      _probationTouched = new Set();
+      _probationNew = [];
+    }
+
     const projection = {
       'inventory.inventoryId': 1, 'event_name': 1, 'venue_name': 1,
       'event_date': 1, 'eventId': 1, 'mapping_id': 1,
@@ -1259,7 +1382,7 @@ export async function* generateInventoryCsvStream(
       'inventory.taxed_cost': 1, 'inventory.cost': 1,
       'inventory.hideSeatNumbers': 1, 'inventory.in_hand': 1,
       'inventory.inHandDate': 1, 'inventory.instant_transfer': 1,
-      'inventory.files_available': 1, 'inventory.splitType': 1,
+      'inventory.files_available': 1, 'inventory.splitType': 1, 'inventory.inventoryTag': 1,
       'inventory.custom_split': 1, 'inventory.stockType': 1,
       'inventory.zone': 1, 'inventory.shown_quantity': 1,
       'inventory.passthrough': 1,
@@ -1352,6 +1475,10 @@ export async function* generateInventoryCsvStream(
 
     const duration = Date.now() - startTime;
     console.log(`[CSV Stream] Completed in ${duration}ms: ${totalRecords} records, ${totalExcluded} excluded`);
+
+    // ── Save get-in guard state for next run ──
+    await _saveGetInGuardState().catch(err =>
+      console.error('[CSV-Stream] Get-in guard save error:', err.message));
 
     if (totalRecords === 0) {
       yield { type: 'done', error: 'No inventory data found after applying exclusion rules.' };
