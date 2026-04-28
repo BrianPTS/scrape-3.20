@@ -46,6 +46,10 @@ const eventSchema = new mongoose.Schema(
       type: Number,
       default: null,
     },
+    seatsForSale: {
+      type: Number,
+      default: 0,
+    },
     Skip_Scraping: {
       type: Boolean,
       default: true,

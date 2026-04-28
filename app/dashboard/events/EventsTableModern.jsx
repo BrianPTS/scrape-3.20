@@ -178,11 +178,53 @@ const EventsTableModern = function EventsTableModern({ data, toggleScraping, sea
         );
       }
     },
-    { 
-      name: <Header title="Price %" description="Price increase percentage" />, 
-      selector: r => r.priceIncreasePercentage, 
-      right: true, 
-      sortable: true, 
+    {
+      name: <Header title="Inventory" description="Seats for sale vs venue capacity" />,
+      selector: r => r.seatsForSale || 0,
+      sortable: true,
+      width: '160px',
+      cell: r => {
+        const capacity = r.Venue_Capacity || 0;
+        const forSale = r.seatsForSale || 0;
+        if (capacity === 0 && forSale === 0) {
+          return <div className="text-center text-xs text-slate-400">No data</div>;
+        }
+        const availablePct = capacity > 0 ? Math.round((forSale / capacity) * 100) : 0;
+        const soldPct = capacity > 0 ? 100 - availablePct : 0;
+        return (
+          <div className="text-center space-y-1 py-1">
+            <div className="text-xs text-slate-600 tabular-nums">
+              <span className="font-semibold text-slate-900">{forSale.toLocaleString()}</span>
+              {capacity > 0 && (
+                <span className="text-slate-400"> / {capacity.toLocaleString()}</span>
+              )}
+            </div>
+            {capacity > 0 && (
+              <div
+                className="flex items-center justify-center gap-1 text-[11px] font-bold"
+                title={`${availablePct}% still available`}
+              >
+                <span className={`px-1.5 py-0.5 rounded-full ${
+                  soldPct >= 80 ? 'bg-red-100 text-red-700' :
+                  soldPct >= 50 ? 'bg-amber-100 text-amber-700' :
+                  'bg-green-100 text-green-700'
+                }`}>
+                  {soldPct}% sold
+                </span>
+                <span className="px-1.5 py-0.5 rounded-full bg-slate-100 text-slate-600">
+                  {availablePct}% avail
+                </span>
+              </div>
+            )}
+          </div>
+        );
+      }
+    },
+    {
+      name: <Header title="Price %" description="Price increase percentage" />,
+      selector: r => r.priceIncreasePercentage,
+      right: true,
+      sortable: true,
       width: '90px',
       cell: r => {
         const percentage = r.priceIncreasePercentage ?? 0;

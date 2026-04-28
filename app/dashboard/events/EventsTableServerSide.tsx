@@ -34,6 +34,7 @@ interface EventData {
   stubhubEnabled?: boolean;
   Availability_Percentage?: number | null;
   Venue_Capacity?: number;
+  seatsForSale?: number;
   dynamicPricingEnabled?: boolean;
   calculatedMarkup?: number;
   pricingStrategy?: string;
