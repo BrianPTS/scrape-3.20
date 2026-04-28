@@ -28,6 +28,8 @@ interface EventType {
   Available_Seats?: number;
   Venue_Capacity?: number;
   Availability_Percentage?: number | null;
+  seatsForSale?: number;
+  sectionStats?: { section: string; total: number; forSale: number }[];
   Skip_Scraping?: boolean;
   inHandDate?: string;
   priceIncreasePercentage?: number;
@@ -405,6 +407,96 @@ export default async function EventDetailsPage({ params }: EventDetailsProps) {
             initialRoiCeiling={event.roiCeiling ?? null}
           />
         </div>
+      </div>
+
+      {/* Section-level inventory breakdown — for verification/testing */}
+      <SectionStatsCard sectionStats={event.sectionStats} />
+    </div>
+  );
+}
+
+function SectionStatsCard({ sectionStats }: { sectionStats?: { section: string; total: number; forSale: number }[] }) {
+  if (!sectionStats || sectionStats.length === 0) {
+    return (
+      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
+        <h2 className="text-lg font-bold text-slate-900 mb-1">Section Inventory Breakdown</h2>
+        <p className="text-sm text-slate-500">No section data yet — populates on the next scrape iteration.</p>
+      </div>
+    );
+  }
+
+  // Sort by total seats descending so largest sections appear first
+  const sorted = [...sectionStats].sort((a, b) => (b.total || 0) - (a.total || 0));
+  const totalCapacity = sorted.reduce((s, x) => s + (x.total || 0), 0);
+  const totalForSale = sorted.reduce((s, x) => s + (x.forSale || 0), 0);
+  const overallSold = totalCapacity > 0 ? Math.round((1 - totalForSale / totalCapacity) * 100) : 0;
+  const overallAvail = 100 - overallSold;
+
+  return (
+    <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+      <div className="px-6 py-5 border-b border-slate-100 flex items-center justify-between">
+        <div>
+          <h2 className="text-lg font-bold text-slate-900">Section Inventory Breakdown</h2>
+          <p className="text-xs text-slate-500 mt-1">Per-section seats for sale vs total capacity. Used for verifying the Inventory column math.</p>
+        </div>
+        <div className="text-right text-xs">
+          <div className="text-slate-500">Overall</div>
+          <div className="font-bold text-slate-900 tabular-nums">{totalForSale.toLocaleString()} / {totalCapacity.toLocaleString()}</div>
+          <div className="mt-1">
+            <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold mr-1 ${
+              overallSold >= 80 ? 'bg-red-100 text-red-700' :
+              overallSold >= 50 ? 'bg-amber-100 text-amber-700' :
+              'bg-green-100 text-green-700'
+            }`}>{overallSold}% sold</span>
+            <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-100 text-slate-600">{overallAvail}% avail</span>
+          </div>
+        </div>
+      </div>
+      <div className="overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead className="bg-slate-50 text-[11px] uppercase tracking-wider text-slate-500 font-bold">
+            <tr>
+              <th className="text-left px-6 py-3">Section</th>
+              <th className="text-right px-6 py-3">For Sale</th>
+              <th className="text-right px-6 py-3">Total</th>
+              <th className="text-right px-6 py-3">% Sold</th>
+              <th className="text-right px-6 py-3">% Available</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-slate-100">
+            {sorted.map((s) => {
+              const total = s.total || 0;
+              const forSale = s.forSale || 0;
+              const soldPct = total > 0 ? Math.round((1 - forSale / total) * 100) : 0;
+              const availPct = total > 0 ? 100 - soldPct : 0;
+              return (
+                <tr key={s.section} className="hover:bg-slate-50">
+                  <td className="px-6 py-2.5 font-medium text-slate-700">{s.section || '(no section)'}</td>
+                  <td className="px-6 py-2.5 text-right tabular-nums font-semibold text-slate-900">{forSale.toLocaleString()}</td>
+                  <td className="px-6 py-2.5 text-right tabular-nums text-slate-500">{total.toLocaleString()}</td>
+                  <td className="px-6 py-2.5 text-right">
+                    {total > 0 ? (
+                      <span className={`px-2 py-0.5 rounded-full text-[11px] font-bold ${
+                        soldPct >= 80 ? 'bg-red-100 text-red-700' :
+                        soldPct >= 50 ? 'bg-amber-100 text-amber-700' :
+                        'bg-green-100 text-green-700'
+                      }`}>{soldPct}%</span>
+                    ) : (
+                      <span className="text-slate-400 text-xs">—</span>
+                    )}
+                  </td>
+                  <td className="px-6 py-2.5 text-right">
+                    {total > 0 ? (
+                      <span className="px-2 py-0.5 rounded-full text-[11px] font-bold bg-slate-100 text-slate-600">{availPct}%</span>
+                    ) : (
+                      <span className="text-slate-400 text-xs">—</span>
+                    )}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
       </div>
     </div>
   );

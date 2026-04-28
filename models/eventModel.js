@@ -50,6 +50,12 @@ const eventSchema = new mongoose.Schema(
       type: Number,
       default: 0,
     },
+    sectionStats: [{
+      _id: false,
+      section: String,
+      total: Number,
+      forSale: Number,
+    }],
     Skip_Scraping: {
       type: Boolean,
       default: true,
