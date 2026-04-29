@@ -62,7 +62,8 @@ export default function DescriptionExclusionsCard() {
 
       <div className="p-5 space-y-4">
         <p className="text-[11px] text-slate-400 leading-relaxed">
-          Offers whose name or description contains any of these terms (case-insensitive substring match) are dropped before reaching the CSV.
+          Drops any offer whose <strong>name, description, attributes, or description-doc text</strong> contains a term below.
+          Match is <strong>case-insensitive</strong> and <strong>partial</strong> (substring) — adding <code className="bg-slate-100 text-slate-600 px-1 rounded text-[10px]">summer</code> matches "Summer of Live Promotion", "summer-only offer", etc.
           The play scraper refreshes this list every 60 seconds — no restart needed.
         </p>
 
