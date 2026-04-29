@@ -4,6 +4,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import moment from 'moment';
 import { Download, Upload, Settings, BarChart3, Clock, Trash2, AlertTriangle, Play, Square, RefreshCw, Eye, Zap, Shield, ChevronDown, CheckCircle2, XCircle, Timer } from 'lucide-react';
 import { deleteStaleInventory } from '../../../actions/seatActions';
+import DescriptionExclusionsCard from './DescriptionExclusionsCard';
 
 // Simple toast notification function
 const showMessage = (text: string, type: 'success' | 'error' | 'info' = 'info') => {
@@ -1209,6 +1210,9 @@ const ExportCsvPage: React.FC = () => {
               )}
             </div>
           </div>
+
+          {/* Description Exclusions */}
+          <DescriptionExclusionsCard />
 
           {/* Danger Zone */}
           <details className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden group hover:shadow-md transition-shadow duration-200">
