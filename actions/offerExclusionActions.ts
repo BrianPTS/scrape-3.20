@@ -4,12 +4,12 @@ import dbConnect from '@/lib/dbConnect';
 import { SchedulerSettings } from '@/models/schedulerModel';
 import { revalidatePath } from 'next/cache';
 
-export async function getDescriptionExclusions(): Promise<{ success: boolean; exclusions: string[]; error?: string }> {
+export async function getOfferNameExclusions(): Promise<{ success: boolean; exclusions: string[]; error?: string }> {
   try {
     await dbConnect();
     const settings = await (SchedulerSettings as any).getSettings();
-    const list: string[] = Array.isArray(settings.descriptionExclusions)
-      ? settings.descriptionExclusions
+    const list: string[] = Array.isArray(settings.offerNameExclusions)
+      ? settings.offerNameExclusions
       : [];
     return { success: true, exclusions: list };
   } catch (err) {
@@ -17,7 +17,7 @@ export async function getDescriptionExclusions(): Promise<{ success: boolean; ex
   }
 }
 
-export async function addDescriptionExclusion(term: string): Promise<{ success: boolean; exclusions: string[]; error?: string }> {
+export async function addOfferNameExclusion(term: string): Promise<{ success: boolean; exclusions: string[]; error?: string }> {
   try {
     const t = (term || '').trim();
     if (!t) return { success: false, exclusions: [], error: 'Empty term' };
@@ -25,15 +25,14 @@ export async function addDescriptionExclusion(term: string): Promise<{ success: 
 
     await dbConnect();
     const settings = await (SchedulerSettings as any).getSettings();
-    const current: string[] = Array.isArray(settings.descriptionExclusions) ? settings.descriptionExclusions : [];
+    const current: string[] = Array.isArray(settings.offerNameExclusions) ? settings.offerNameExclusions : [];
 
-    // Case-insensitive de-dupe
     if (current.some(x => x.toLowerCase() === t.toLowerCase())) {
       return { success: true, exclusions: current };
     }
 
     const next = [...current, t];
-    settings.descriptionExclusions = next;
+    settings.offerNameExclusions = next;
     settings.updatedAt = new Date();
     await settings.save();
 
@@ -44,14 +43,14 @@ export async function addDescriptionExclusion(term: string): Promise<{ success: 
   }
 }
 
-export async function removeDescriptionExclusion(term: string): Promise<{ success: boolean; exclusions: string[]; error?: string }> {
+export async function removeOfferNameExclusion(term: string): Promise<{ success: boolean; exclusions: string[]; error?: string }> {
   try {
     await dbConnect();
     const settings = await (SchedulerSettings as any).getSettings();
-    const current: string[] = Array.isArray(settings.descriptionExclusions) ? settings.descriptionExclusions : [];
+    const current: string[] = Array.isArray(settings.offerNameExclusions) ? settings.offerNameExclusions : [];
     const next = current.filter(x => x.toLowerCase() !== (term || '').toLowerCase());
 
-    settings.descriptionExclusions = next;
+    settings.offerNameExclusions = next;
     settings.updatedAt = new Date();
     await settings.save();
 

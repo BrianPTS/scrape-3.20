@@ -94,7 +94,7 @@ const schedulerSettingsSchema = new mongoose.Schema({
   },
   // List of offer name/description substrings to drop from the scrape pipeline.
   // Edited from the Export CSV page; play scraper reads this on every iteration.
-  descriptionExclusions: {
+  offerNameExclusions: {
     type: [String],
     default: ['Summer of Live Promotion'],
   },

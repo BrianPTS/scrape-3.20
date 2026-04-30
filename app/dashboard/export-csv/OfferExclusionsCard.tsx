@@ -3,12 +3,12 @@
 import React, { useEffect, useState, useTransition } from 'react';
 import { Filter, Plus, X, AlertCircle } from 'lucide-react';
 import {
-  getDescriptionExclusions,
-  addDescriptionExclusion,
-  removeDescriptionExclusion,
-} from '../../../actions/descriptionExclusionActions';
+  getOfferNameExclusions,
+  addOfferNameExclusion,
+  removeOfferNameExclusion,
+} from '../../../actions/offerExclusionActions';
 
-export default function DescriptionExclusionsCard() {
+export default function OfferExclusionsCard() {
   const [exclusions, setExclusions] = useState<string[]>([]);
   const [input, setInput] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -17,7 +17,7 @@ export default function DescriptionExclusionsCard() {
 
   useEffect(() => {
     (async () => {
-      const r = await getDescriptionExclusions();
+      const r = await getOfferNameExclusions();
       if (r.success) setExclusions(r.exclusions);
       else setError(r.error || 'Failed to load');
       setLoading(false);
@@ -29,20 +29,16 @@ export default function DescriptionExclusionsCard() {
     if (!term) return;
     setError(null);
     startTransition(async () => {
-      const r = await addDescriptionExclusion(term);
-      if (r.success) {
-        setExclusions(r.exclusions);
-        setInput('');
-      } else {
-        setError(r.error || 'Failed to add');
-      }
+      const r = await addOfferNameExclusion(term);
+      if (r.success) { setExclusions(r.exclusions); setInput(''); }
+      else setError(r.error || 'Failed to add');
     });
   };
 
   const handleRemove = (term: string) => {
     setError(null);
     startTransition(async () => {
-      const r = await removeDescriptionExclusion(term);
+      const r = await removeOfferNameExclusion(term);
       if (r.success) setExclusions(r.exclusions);
       else setError(r.error || 'Failed to remove');
     });
@@ -54,7 +50,7 @@ export default function DescriptionExclusionsCard() {
         <div className="w-8 h-8 bg-gradient-to-br from-rose-500 to-rose-600 rounded-lg flex items-center justify-center">
           <Filter className="w-4 h-4 text-white" />
         </div>
-        <h3 className="text-lg font-semibold text-slate-800">Description Exclusions</h3>
+        <h3 className="text-lg font-semibold text-slate-800">Offer Name Exclusions</h3>
         <span className="ml-auto text-[11px] text-slate-400">
           {loading ? '…' : `${exclusions.length} active`}
         </span>
@@ -62,9 +58,11 @@ export default function DescriptionExclusionsCard() {
 
       <div className="p-5 space-y-4">
         <p className="text-[11px] text-slate-400 leading-relaxed">
-          Drops any offer whose <strong>name, description, attributes, or description-doc text</strong> contains a term below.
-          Match is <strong>case-insensitive</strong> and <strong>partial</strong> (substring) — adding <code className="bg-slate-100 text-slate-600 px-1 rounded text-[10px]">summer</code> matches "Summer of Live Promotion", "summer-only offer", etc.
-          The play scraper refreshes this list every 60 seconds — no restart needed.
+          Offers whose <strong className="text-slate-500">name</strong> contains any of these terms are dropped before reaching the CSV.
+          Match is <strong className="text-slate-500">case-insensitive</strong> and <strong className="text-slate-500">partial</strong> (substring) —
+          adding <code className="bg-slate-100 text-slate-600 px-1 rounded text-[10px]">summer</code> matches
+          "Summer of Live Promotion", "summer-only offer", etc.
+          The play scraper refreshes this list every 60 seconds.
         </p>
 
         <div className="flex gap-2">
