@@ -157,6 +157,10 @@ const consecutiveGroupSchema = new mongoose.Schema(
       inventoryTag: {
         type: String, // "standard" or "resale" — sourced from TM offer.inventoryType
       },
+      resaleType: {
+        type: String, // "verified_resale" (fan) | "3rd_party_resale" (broker) | null (standard)
+        default: null,
+      },
       publicNotes: {
         type: String,
       },

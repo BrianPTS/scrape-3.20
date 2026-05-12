@@ -519,7 +519,7 @@ export async function generateInventoryCsv(eventUpdateFilterMinutes: number = 0)
       // Pre-fetch ALL event details once (small — only active events) instead of
       // running $lookup per chunk. This is the single biggest speed-up.
       const eventDetailsMap = new Map<string, {
-        url: string; stdAdj: number; resaleAdj: number; defaultPct: number;
+        url: string; stdAdj: number; resaleAdj: number; brokerAdj: number; defaultPct: number;
         includeStandard: boolean; includeResale: boolean; useStubHubPricing: boolean;
         availabilityPct: number | null;
         dynamicPricingEnabled: boolean; calculatedMarkup: number;
@@ -528,6 +528,7 @@ export async function generateInventoryCsv(eventUpdateFilterMinutes: number = 0)
       const eventDocs = await Event.find(
         { mapping_id: { $in: eventMappingIds } },
         { mapping_id: 1, URL: 1, standardMarkupAdjustment: 1, resaleMarkupAdjustment: 1,
+          brokerMarkupAdjustment: 1,
           priceIncreasePercentage: 1, includeStandardSeats: 1, includeResaleSeats: 1,
           useStubHubPricing: 1, Availability_Percentage: 1,
           dynamicPricingEnabled: 1, calculatedMarkup: 1, pricingStrategy: 1,
@@ -539,6 +540,7 @@ export async function generateInventoryCsv(eventUpdateFilterMinutes: number = 0)
           url: ev.URL || '',
           stdAdj: ev.standardMarkupAdjustment ?? 0,
           resaleAdj: ev.resaleMarkupAdjustment ?? 0,
+          brokerAdj: ev.brokerMarkupAdjustment ?? 0,
           defaultPct: isDynamic
             ? (ev.calculatedMarkup ?? ev.priceIncreasePercentage ?? 0)
             : (ev.priceIncreasePercentage ?? 0),
@@ -660,6 +662,7 @@ export async function generateInventoryCsv(eventUpdateFilterMinutes: number = 0)
       'inventory.files_available': 1,
       'inventory.splitType': 1,
       'inventory.inventoryTag': 1,
+      'inventory.resaleType': 1,
       'inventory.custom_split': 1,
       'inventory.stockType': 1,
       'inventory.zone': 1,
@@ -724,6 +727,7 @@ export async function generateInventoryCsv(eventUpdateFilterMinutes: number = 0)
             doc.event_url = evData?.url || '';
             doc.event_std_adj = evData?.stdAdj ?? 0;
             doc.event_resale_adj = evData?.resaleAdj ?? 0;
+            doc.event_broker_adj = evData?.brokerAdj ?? 0;
             doc.event_default_pct = evData?.defaultPct ?? 0;
             doc.event_use_stubhub_pricing = evData?.useStubHubPricing ?? false;
             doc.event_availability_pct = evData?.availabilityPct ?? null;
@@ -847,6 +851,7 @@ interface ConsecutiveGroupDocument {
     files_available?: boolean;
     splitType?: string;
     inventoryTag?: string;
+    resaleType?: string;
     custom_split?: string;
     stockType?: string;
     zone?: boolean;
@@ -865,6 +870,7 @@ interface ConsecutiveGroupDocument {
   event_url?: string;
   event_std_adj?: number;
   event_resale_adj?: number;
+  event_broker_adj?: number;
   event_default_pct?: number;
   event_use_stubhub_pricing?: boolean;
   event_availability_pct?: number | null;
@@ -1059,7 +1065,9 @@ async function processBatch(batch: ConsecutiveGroupDocument[]): Promise<CsvRow[]
     } else if (pricingStrategy === 'static') {
       // Static: apply flat markup + per-type adjustments, NO risk boosts
       const defaultPct = doc.event_default_pct ?? 0;
-      const adj = isResale ? (doc.event_resale_adj ?? 0) : (doc.event_std_adj ?? 0);
+      const isBroker = isResale && inventory?.resaleType === '3rd_party_resale';
+      const adj = isBroker ? (doc.event_broker_adj ?? doc.event_resale_adj ?? 0)
+        : isResale ? (doc.event_resale_adj ?? 0) : (doc.event_std_adj ?? 0);
       adjustedListPrice = defaultPct !== 0 || adj !== 0
         ? rawListPrice * (1 + (defaultPct + adj) / 100) / (1 + defaultPct / 100)
         : rawListPrice;
@@ -1069,7 +1077,9 @@ async function processBatch(batch: ConsecutiveGroupDocument[]): Promise<CsvRow[]
       const useStubHub = doc.event_use_stubhub_pricing && inventory?.stubhubSuggestedPrice != null;
 
       const defaultPct = doc.event_default_pct ?? 0;
-      const adj = isResale ? (doc.event_resale_adj ?? 0) : (doc.event_std_adj ?? 0);
+      const isBrokerDyn = isResale && inventory?.resaleType === '3rd_party_resale';
+      const adj = isBrokerDyn ? (doc.event_broker_adj ?? doc.event_resale_adj ?? 0)
+        : isResale ? (doc.event_resale_adj ?? 0) : (doc.event_std_adj ?? 0);
       const markupPrice = defaultPct !== 0 || adj !== 0
         ? rawListPrice * (1 + (defaultPct + adj) / 100) / (1 + defaultPct / 100)
         : rawListPrice;
@@ -1327,13 +1337,14 @@ export async function* generateInventoryCsvStream(
     const eventFilter = { mapping_id: { $in: eventMappingIds } };
 
     const eventDetailsMap = new Map<string, {
-      url: string; stdAdj: number; resaleAdj: number; defaultPct: number;
+      url: string; stdAdj: number; resaleAdj: number; brokerAdj: number; defaultPct: number;
       includeStandard: boolean; includeResale: boolean; useStubHubPricing: boolean;
       availabilityPct: number | null; pricingStrategy: string;
     }>();
     const eventDocs = await Event.find(
       { mapping_id: { $in: eventMappingIds } },
       { mapping_id: 1, URL: 1, standardMarkupAdjustment: 1, resaleMarkupAdjustment: 1,
+        brokerMarkupAdjustment: 1,
         priceIncreasePercentage: 1, includeStandardSeats: 1, includeResaleSeats: 1,
         useStubHubPricing: 1, dynamicPricingEnabled: 1, calculatedMarkup: 1,
         Availability_Percentage: 1, pricingStrategy: 1 }
@@ -1344,6 +1355,7 @@ export async function* generateInventoryCsvStream(
         url: ev.URL || '',
         stdAdj: ev.standardMarkupAdjustment ?? 0,
         resaleAdj: ev.resaleMarkupAdjustment ?? 0,
+        brokerAdj: ev.brokerMarkupAdjustment ?? 0,
         defaultPct: isDynamic
           ? (ev.calculatedMarkup ?? ev.priceIncreasePercentage ?? 0)
           : (ev.priceIncreasePercentage ?? 0),
@@ -1406,6 +1418,7 @@ export async function* generateInventoryCsvStream(
       'inventory.hideSeatNumbers': 1, 'inventory.in_hand': 1,
       'inventory.inHandDate': 1, 'inventory.instant_transfer': 1,
       'inventory.files_available': 1, 'inventory.splitType': 1, 'inventory.inventoryTag': 1,
+      'inventory.resaleType': 1,
       'inventory.custom_split': 1, 'inventory.stockType': 1,
       'inventory.zone': 1, 'inventory.shown_quantity': 1,
       'inventory.passthrough': 1,
@@ -1456,6 +1469,7 @@ export async function* generateInventoryCsvStream(
           doc.event_url = evData?.url || '';
           doc.event_std_adj = evData?.stdAdj ?? 0;
           doc.event_resale_adj = evData?.resaleAdj ?? 0;
+          doc.event_broker_adj = evData?.brokerAdj ?? 0;
           doc.event_default_pct = evData?.defaultPct ?? 0;
           doc.event_use_stubhub_pricing = evData?.useStubHubPricing ?? false;
           doc.event_availability_pct = evData?.availabilityPct ?? null;

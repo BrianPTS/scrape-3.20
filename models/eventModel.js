@@ -82,6 +82,10 @@ const eventSchema = new mongoose.Schema(
       type: Number,
       default: 0, // +/- offset on top of scraper default for RESALE tickets
     },
+    brokerMarkupAdjustment: {
+      type: Number,
+      default: 0, // +/- offset on top of scraper default for BROKER resale tickets (3rd_party_resale)
+    },
     includeStandardSeats: {
       type: Boolean,
       default: true, // Include STANDARD seats in CSV export

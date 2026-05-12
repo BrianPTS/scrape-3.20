@@ -12,6 +12,7 @@ interface Props {
   initialPct: number;
   initialStandardAdj?: number;
   initialResaleAdj?: number;
+  initialBrokerAdj?: number;
   dynamicPricingEnabled?: boolean;
   calculatedMarkup?: number;
   markupFactors?: {
@@ -82,7 +83,7 @@ const STRATEGY_OPTIONS: { value: PricingStrategy; label: string; desc: string }[
 ];
 
 export default function PriceEditor({
-  eventId, initialPct, initialStandardAdj = 0, initialResaleAdj = 0,
+  eventId, initialPct, initialStandardAdj = 0, initialResaleAdj = 0, initialBrokerAdj = 0,
   dynamicPricingEnabled: initialDynamic = true, calculatedMarkup, markupFactors, lastMarkupCalcAt,
   initialPricingStrategy = 'dynamic',
   initialRoiFloor = null, initialRoiCeiling = null,
@@ -93,6 +94,7 @@ export default function PriceEditor({
   const [inputVal, setInputVal] = useState(String(initialPct));
   const [stdAdj, setStdAdj] = useState(initialStandardAdj);
   const [resaleAdj, setResaleAdj] = useState(initialResaleAdj);
+  const [brokerAdj, setBrokerAdj] = useState(initialBrokerAdj);
   const [dynamicEnabled, setDynamicEnabled] = useState(initialDynamic);
   const [strategy, setStrategy] = useState<PricingStrategy>(initialPricingStrategy);
   const [roiFloor, setRoiFloor] = useState<number | null>(initialRoiFloor);
@@ -100,7 +102,7 @@ export default function PriceEditor({
   const [saveState, setSaveState] = useState<SaveState>('idle');
   const successTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const isDirty = value !== initialPct || stdAdj !== initialStandardAdj || resaleAdj !== initialResaleAdj || dynamicEnabled !== initialDynamic || strategy !== initialPricingStrategy || roiFloor !== initialRoiFloor || roiCeiling !== initialRoiCeiling;
+  const isDirty = value !== initialPct || stdAdj !== initialStandardAdj || resaleAdj !== initialResaleAdj || brokerAdj !== initialBrokerAdj || dynamicEnabled !== initialDynamic || strategy !== initialPricingStrategy || roiFloor !== initialRoiFloor || roiCeiling !== initialRoiCeiling;
 
   useEffect(() => { setInputVal(String(value)); }, [value]);
 
@@ -122,6 +124,7 @@ export default function PriceEditor({
           priceIncreasePercentage: value,
           standardMarkupAdjustment: stdAdj,
           resaleMarkupAdjustment: resaleAdj,
+          brokerMarkupAdjustment: brokerAdj,
           dynamicPricingEnabled: dynamicEnabled,
           pricingStrategy: strategy,
           roiFloor: roiFloor,
@@ -344,6 +347,17 @@ export default function PriceEditor({
             defaultPct={value}
             onChange={(v) => {
               setResaleAdj(v);
+              setSaveState("idle");
+            }}
+            disabled={isPending}
+          />
+          <div className="h-px bg-gray-200 my-1" />
+          <AdjRow
+            label="Broker"
+            adj={brokerAdj}
+            defaultPct={value}
+            onChange={(v) => {
+              setBrokerAdj(v);
               setSaveState("idle");
             }}
             disabled={isPending}

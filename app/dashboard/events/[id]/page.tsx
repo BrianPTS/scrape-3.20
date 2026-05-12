@@ -35,6 +35,7 @@ interface EventType {
   priceIncreasePercentage?: number;
   standardMarkupAdjustment?: number;
   resaleMarkupAdjustment?: number;
+  brokerMarkupAdjustment?: number;
   pricingStrategy?: string;
   includeStandardSeats?: boolean;
   includeResaleSeats?: boolean;
@@ -90,6 +91,7 @@ export default async function EventDetailsPage({ params }: EventDetailsProps) {
   const pct = event.priceIncreasePercentage ?? 25;
   const stdAdj = event.standardMarkupAdjustment ?? 0;
   const resAdj = event.resaleMarkupAdjustment ?? 0;
+  const brokerAdj = event.brokerMarkupAdjustment ?? 0;
 
   const inventoryCounts = await inventoryPromise;
   const mid = event.mapping_id;
@@ -398,6 +400,7 @@ export default async function EventDetailsPage({ params }: EventDetailsProps) {
             initialPct={pct}
             initialStandardAdj={stdAdj}
             initialResaleAdj={resAdj}
+            initialBrokerAdj={brokerAdj}
             dynamicPricingEnabled={event.dynamicPricingEnabled !== false}
             calculatedMarkup={event.calculatedMarkup}
             markupFactors={event.markupFactors}

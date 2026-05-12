@@ -25,6 +25,7 @@ interface EventData {
   priceIncreasePercentage?: number;
   standardMarkupAdjustment?: number;
   resaleMarkupAdjustment?: number;
+  brokerMarkupAdjustment?: number;
   standardQty?: number;
   resaleQty?: number;
   standardRows?: number;
@@ -445,22 +446,21 @@ export default async function EventsTableServerSide({ searchParams }: PageProps)
                           {(() => {
                             const stdAdj = event.standardMarkupAdjustment ?? 0;
                             const resAdj = event.resaleMarkupAdjustment ?? 0;
+                            const brkAdj = (event as any).brokerMarkupAdjustment ?? 0;
+                            const adjBadge = (label: string, val: number) => (
+                              <span className={`inline-flex items-center text-[10px] font-semibold px-1.5 py-0.5 rounded border tabular-nums ${
+                                val > 0 ? 'border-orange-200 bg-orange-50 text-orange-600'
+                                : val < 0 ? 'border-sky-200 bg-sky-50 text-sky-700'
+                                : 'border-gray-200 bg-white text-gray-400'
+                              }`}>
+                                <span className="mr-0.5 opacity-50 text-[9px]">{label}</span>{val > 0 ? '+' : ''}{val}%
+                              </span>
+                            );
                             return (
                               <div className="flex items-center gap-1">
-                                <span className={`inline-flex items-center text-[10px] font-semibold px-1.5 py-0.5 rounded border tabular-nums ${
-                                  stdAdj > 0 ? 'border-orange-200 bg-orange-50 text-orange-600'
-                                  : stdAdj < 0 ? 'border-sky-200 bg-sky-50 text-sky-700'
-                                  : 'border-gray-200 bg-white text-gray-400'
-                                }`}>
-                                  <span className="mr-0.5 opacity-50 text-[9px]">S</span>{stdAdj > 0 ? '+' : ''}{stdAdj}%
-                                </span>
-                                <span className={`inline-flex items-center text-[10px] font-semibold px-1.5 py-0.5 rounded border tabular-nums ${
-                                  resAdj > 0 ? 'border-orange-200 bg-orange-50 text-orange-600'
-                                  : resAdj < 0 ? 'border-sky-200 bg-sky-50 text-sky-700'
-                                  : 'border-gray-200 bg-white text-gray-400'
-                                }`}>
-                                  <span className="mr-0.5 opacity-50 text-[9px]">R</span>{resAdj > 0 ? '+' : ''}{resAdj}%
-                                </span>
+                                {adjBadge('S', stdAdj)}
+                                {adjBadge('R', resAdj)}
+                                {adjBadge('B', brkAdj)}
                               </div>
                             );
                           })()}
@@ -619,22 +619,21 @@ export default async function EventsTableServerSide({ searchParams }: PageProps)
                           {(() => {
                             const stdAdj = event.standardMarkupAdjustment ?? 0;
                             const resAdj = event.resaleMarkupAdjustment ?? 0;
+                            const brkAdj = (event as any).brokerMarkupAdjustment ?? 0;
+                            const adjBadge = (label: string, val: number) => (
+                              <span className={`inline-flex items-center text-[10px] font-semibold px-1.5 py-0.5 rounded border tabular-nums ${
+                                val > 0 ? 'border-orange-200 bg-orange-50 text-orange-600'
+                                : val < 0 ? 'border-sky-200 bg-sky-50 text-sky-700'
+                                : 'border-gray-200 bg-white text-gray-400'
+                              }`}>
+                                <span className="mr-0.5 opacity-50 text-[9px]">{label}</span>{val > 0 ? '+' : ''}{val}%
+                              </span>
+                            );
                             return (
                               <div className="flex items-center gap-1">
-                                <span className={`inline-flex items-center text-[10px] font-semibold px-1.5 py-0.5 rounded border tabular-nums ${
-                                  stdAdj > 0 ? 'border-orange-200 bg-orange-50 text-orange-600'
-                                  : stdAdj < 0 ? 'border-sky-200 bg-sky-50 text-sky-700'
-                                  : 'border-gray-200 bg-white text-gray-400'
-                                }`}>
-                                  <span className="mr-0.5 opacity-50 text-[9px]">S</span>{stdAdj > 0 ? '+' : ''}{stdAdj}%
-                                </span>
-                                <span className={`inline-flex items-center text-[10px] font-semibold px-1.5 py-0.5 rounded border tabular-nums ${
-                                  resAdj > 0 ? 'border-orange-200 bg-orange-50 text-orange-600'
-                                  : resAdj < 0 ? 'border-sky-200 bg-sky-50 text-sky-700'
-                                  : 'border-gray-200 bg-white text-gray-400'
-                                }`}>
-                                  <span className="mr-0.5 opacity-50 text-[9px]">R</span>{resAdj > 0 ? '+' : ''}{resAdj}%
-                                </span>
+                                {adjBadge('S', stdAdj)}
+                                {adjBadge('R', resAdj)}
+                                {adjBadge('B', brkAdj)}
                               </div>
                             );
                           })()}
