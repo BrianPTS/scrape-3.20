@@ -37,6 +37,7 @@ const EditEventForm = ({ onCancel, onSuccess, initialData }) => {
 const EventFormContent = ({ mode, onCancel, onSuccess, initialData }) => {
   const form = useEventForm();
   const notifications = useNotifications();
+  const [additionalUrls, setAdditionalUrls] = React.useState([]);
 
   // Helper function to extract Event ID from URL
   const extractEventIdFromUrl = (url) => {
@@ -275,6 +276,14 @@ const EventFormContent = ({ mode, onCancel, onSuccess, initialData }) => {
         resaleMarkupAdjustment: form.data.resaleMarkupAdjustment.value,
         source: form.data.source.value,
         eventType: form.data.eventType?.value || null,
+        additionalEventIds: additionalUrls
+          .filter(u => u.url.trim())
+          .map(u => ({
+            eventId: extractEventIdFromUrl(u.url) || '',
+            url: u.url.trim(),
+            label: u.label.trim() || '',
+          }))
+          .filter(u => u.eventId),
       };
 
       let result;
@@ -347,6 +356,50 @@ const EventFormContent = ({ mode, onCancel, onSuccess, initialData }) => {
                 onBlur={handleBlur}
                 disabled={form.meta.isSubmitting}
               />
+            </div>
+
+            {/* Additional URLs */}
+            <div className="md:col-span-2">
+              {additionalUrls.map((entry, idx) => (
+                <div key={idx} className="flex gap-2 mt-2">
+                  <input
+                    type="url"
+                    placeholder="Additional TM URL"
+                    value={entry.url}
+                    onChange={(e) => {
+                      const updated = [...additionalUrls];
+                      updated[idx] = { ...updated[idx], url: e.target.value };
+                      setAdditionalUrls(updated);
+                    }}
+                    className="flex-1 px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-200 focus:border-blue-400"
+                  />
+                  <input
+                    type="text"
+                    placeholder="Label (e.g. Luxury & Suites)"
+                    value={entry.label}
+                    onChange={(e) => {
+                      const updated = [...additionalUrls];
+                      updated[idx] = { ...updated[idx], label: e.target.value };
+                      setAdditionalUrls(updated);
+                    }}
+                    className="w-48 px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-200 focus:border-blue-400"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setAdditionalUrls(additionalUrls.filter((_, i) => i !== idx))}
+                    className="px-3 py-2 text-red-500 hover:bg-red-50 rounded-lg text-sm font-medium transition-colors"
+                  >
+                    Remove
+                  </button>
+                </div>
+              ))}
+              <button
+                type="button"
+                onClick={() => setAdditionalUrls([...additionalUrls, { url: '', label: '' }])}
+                className="mt-2 text-sm text-blue-600 hover:text-blue-700 font-medium"
+              >
+                + Add another TM URL (same event, different listing)
+              </button>
             </div>
 
             {/* Event ID Field */}
