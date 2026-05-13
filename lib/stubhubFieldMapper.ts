@@ -86,6 +86,18 @@ function buildTags(tagString?: string): any[] | undefined {
   }));
 }
 
+// Floor = 12% above total cost (minimum acceptable price)
+// Ceiling = our markup-adjusted list price (from dashboard settings)
+function buildAutoPricingSettings(cost: number, listPrice: number): any {
+  const floor = Math.round(cost * 1.12 * 100) / 100;
+  const ceiling = Math.round(listPrice * 100) / 100;
+  return {
+    autoPricingEnabled: true,
+    netProceedsFloor: floor,
+    netProceedsCeiling: ceiling > floor ? ceiling : floor,
+  };
+}
+
 /**
  * Map a CsvRow to a StubHub InventoryCreateRequest.
  * Requires stubhubEventId (viagogo event ID) to be resolved separately.
@@ -113,6 +125,7 @@ export function mapToCreateRequest(row: CsvRow, stubhubEventId: number): any {
     listingNotes: buildListingNotes(row.public_notes),
     tags: buildTags(row.tags),
     autoBroadcast: true,
+    autoPricingSettings: buildAutoPricingSettings(row.cost, row.list_price),
   };
 }
 
@@ -131,6 +144,11 @@ export function mapToUpdateRequest(row: CsvRow): any {
     splitType: mapSplitType(row.split_type),
     maxDisplayQuantity: row.shown_quantity || row.quantity,
     hideSeats: row.hide_seats === 'Y',
+    pricingSetting: {
+      pricingEnabled: true,
+      netProceedsFloor: Math.round(row.cost * 1.12 * 100) / 100,
+      netProceedsCeiling: Math.round(row.list_price * 100) / 100,
+    },
   };
 }
 
