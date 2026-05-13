@@ -86,15 +86,20 @@ function buildTags(tagString?: string): any[] | undefined {
   }));
 }
 
-// Floor = 12% above total cost (minimum acceptable price)
-// Ceiling = our markup-adjusted list price (from dashboard settings)
-function buildAutoPricingSettings(cost: number, listPrice: number): any {
-  const floor = Math.round(cost * 1.12 * 100) / 100;
-  const ceiling = Math.round(listPrice * 100) / 100;
+// Floor = our markup-adjusted list_price (the price from our dashboard/scraper)
+// Ceiling = not set (let StubHub price above our floor if market supports it)
+// Comps = same section, same row, same quantity only
+function buildAutoPricingSettings(listPrice: number, quantity: number): any {
   return {
     autoPricingEnabled: true,
-    netProceedsFloor: floor,
-    netProceedsCeiling: ceiling > floor ? ceiling : floor,
+    netProceedsFloor: Math.round(listPrice * 100) / 100,
+    compListingSettings: {
+      sectionFilterMode: 'SameSection',
+      rowOffset: 0,
+      quantityFilters: {
+        exactQuantities: [quantity],
+      },
+    },
   };
 }
 
@@ -125,7 +130,7 @@ export function mapToCreateRequest(row: CsvRow, stubhubEventId: number): any {
     listingNotes: buildListingNotes(row.public_notes),
     tags: buildTags(row.tags),
     autoBroadcast: true,
-    autoPricingSettings: buildAutoPricingSettings(row.cost, row.list_price),
+    autoPricingSettings: buildAutoPricingSettings(row.list_price, row.quantity),
   };
 }
 
@@ -146,8 +151,10 @@ export function mapToUpdateRequest(row: CsvRow): any {
     hideSeats: row.hide_seats === 'Y',
     pricingSetting: {
       pricingEnabled: true,
-      netProceedsFloor: Math.round(row.cost * 1.12 * 100) / 100,
-      netProceedsCeiling: Math.round(row.list_price * 100) / 100,
+      netProceedsFloor: Math.round(row.list_price * 100) / 100,
+      compListingMode: 'SameSection',
+      compListingFloor: 0.9,
+      compListingCeiling: 1.1,
     },
   };
 }
