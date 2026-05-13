@@ -565,7 +565,25 @@ export default function ImportEventsClient({
         eventType: selectedType,
       };
       const result = await createEvent(eventData as Parameters<typeof createEvent>[0]);
-      if (result.error) throw new Error(result.error);
+      if (result.error) {
+        // If duplicate mapping_id, auto-append as additional URL on the existing event
+        if (result.error.includes('duplicate key') || result.error.includes('E11000')) {
+          try {
+            const { appendAdditionalEventId } = await import('@/actions/eventActions');
+            const appendResult = await appendAdditionalEventId(mappingId, {
+              eventId: urlEventId,
+              url: finalUrl,
+              label: event.name || '',
+            });
+            if (appendResult.error) throw new Error(appendResult.error);
+            updateImportState(event.id, { status: 'success', error: 'Added as additional URL to existing event' });
+            return;
+          } catch (appendErr: unknown) {
+            throw new Error(`Duplicate mapping ID and failed to append: ${(appendErr as Error).message}`);
+          }
+        }
+        throw new Error(result.error);
+      }
       updateImportState(event.id, { status: 'success' });
     } catch (err: unknown) {
       updateImportState(event.id, { status: 'error', error: (err as Error).message || 'Import failed' });

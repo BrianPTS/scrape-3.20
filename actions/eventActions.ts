@@ -53,6 +53,31 @@ export async function createEvent(eventData: Partial<Event>) {
   }
 }
 
+export async function appendAdditionalEventId(
+  mappingId: string,
+  entry: { eventId: string; url: string; label?: string }
+): Promise<{ success?: boolean; error?: string }> {
+  await dbConnect();
+  try {
+    const result = await Event.updateOne(
+      { mapping_id: mappingId },
+      {
+        $addToSet: {
+          additionalEventIds: {
+            eventId: entry.eventId,
+            url: entry.url,
+            label: entry.label || '',
+          },
+        },
+      }
+    );
+    if (result.matchedCount === 0) return { error: 'Event not found' };
+    return { success: true };
+  } catch (err) {
+    return { error: (err as Error).message };
+  }
+}
+
 /**
  * Retrieves a single event by its ID.
  * @param {string} eventId - The ID of the event to retrieve.

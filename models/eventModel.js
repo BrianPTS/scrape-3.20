@@ -25,6 +25,12 @@ const eventSchema = new mongoose.Schema(
       type: String,
       required: true,
     },
+    additionalEventIds: [{
+      _id: false,
+      eventId: { type: String, required: true },
+      url: { type: String, required: true },
+      label: { type: String, default: '' },
+    }],
     source: {
       type: String,
       enum: ['ticketmaster', 'ticketscom'],

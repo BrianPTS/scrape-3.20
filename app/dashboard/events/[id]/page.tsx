@@ -362,6 +362,18 @@ export default async function EventDetailsPage({ params }: EventDetailsProps) {
                       <ExternalLink size={10} />
                     </a>
                   ) : <span className="text-slate-300">—</span>}
+                  {(event as any).additionalEventIds?.length > 0 && (
+                    <div className="mt-2 space-y-1">
+                      {(event as any).additionalEventIds.map((extra: { eventId: string; url: string; label: string }, i: number) => (
+                        <a key={i} href={extra.url} target="_blank" rel="noopener noreferrer"
+                          className="flex items-center gap-1.5 text-purple-500 hover:text-purple-600 transition-colors text-xs font-medium">
+                          <Globe size={10} />
+                          {extra.label || extra.eventId}
+                          <ExternalLink size={9} />
+                        </a>
+                      ))}
+                    </div>
+                  )}
                 </MetaItem>
               </div>
             </div>
