@@ -6,6 +6,7 @@
 // Or, if your tsconfig.json has a "paths" alias for "@", ensure it points to the correct directory.
 import { getSchedulerSettings, updateSchedulerSettings } from '@/actions/csvActions';
 import { generateInventoryCsv, uploadCsvToSyncService } from '@/actions/csvActions';
+import { syncInventoryToStubHub } from '@/actions/stubhubUploadActions';
 import { createErrorLog } from '@/actions/errorLogActions';
 import { NextRequest, NextResponse } from 'next/server';
 import { requireFeatureFlag } from '@/lib/featureFlags';
@@ -156,12 +157,35 @@ async function startScheduler(intervalMinutes: number, uploadToSync: boolean, ev
         // Skip file saving to prevent storage issues - CSV is uploaded to sync service directly
         console.log(`[${timestamp}] ✅ CSV generated in memory (${result.recordCount} records, generated in ${generationTime}ms)`);
         
-        // Upload to sync service if enabled
-        if (currentSettings.uploadToSync) {
+        // Upload to StubHub POS API if enabled (replaces Sync/Automatiq)
+        if (currentSettings.uploadToSync && process.env.STUBHUB_POS_API_TOKEN) {
+          const uploadStart = Date.now();
+          try {
+            const stubhubResult = await syncInventoryToStubHub(result.records || []);
+            uploadTime = Date.now() - uploadStart;
+
+            if (stubhubResult.success) {
+              console.log(`[${timestamp}] ☁️ StubHub sync completed (${stubhubResult.created}C ${stubhubResult.updated}U ${stubhubResult.deleted}D, ${uploadTime}ms)`);
+              schedulerMetrics.successfulRuns++;
+            } else {
+              const errMsg = stubhubResult.errors.join('; ') || 'Unknown error';
+              console.error(`[${timestamp}] ❌ StubHub sync errors: ${errMsg}`);
+              schedulerMetrics.failedRuns++;
+              schedulerMetrics.lastError = errMsg;
+            }
+          } catch (stubhubErr: any) {
+            uploadTime = Date.now() - uploadStart;
+            console.error(`[${timestamp}] ❌ StubHub sync crashed: ${stubhubErr.message}`);
+            schedulerMetrics.failedRuns++;
+            schedulerMetrics.lastError = stubhubErr.message;
+          }
+        }
+        // Fallback: upload CSV to legacy Sync service if StubHub token not set
+        else if (currentSettings.uploadToSync) {
           const uploadStart = Date.now();
           const uploadResult = await uploadCsvToSyncService(result.csv);
           uploadTime = Date.now() - uploadStart;
-          
+
           if (uploadResult.success) {
             console.log(`[${timestamp}] ☁️ CSV uploaded to sync service successfully (${uploadTime}ms)`);
             schedulerMetrics.successfulRuns++;
@@ -169,7 +193,7 @@ async function startScheduler(intervalMinutes: number, uploadToSync: boolean, ev
             console.error(`[${timestamp}] ❌ Failed to upload CSV:`, uploadResult.message);
             schedulerMetrics.failedRuns++;
             schedulerMetrics.lastError = uploadResult.message;
-            
+
             // Log error to database
             await createErrorLog({
               eventUrl: 'CSV_SCHEDULER_UPLOAD',

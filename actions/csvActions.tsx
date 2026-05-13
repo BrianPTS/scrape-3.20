@@ -806,6 +806,7 @@ export async function generateInventoryCsv(eventUpdateFilterMinutes: number = 0)
       return {
         success: true,
         csv: csvString,
+        records: filteredRecords,
         recordCount: filteredRecords.length,
         excludedCount: records.length - filteredRecords.length,
         generationTime: duration,
