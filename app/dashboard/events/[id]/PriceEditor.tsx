@@ -342,7 +342,7 @@ export default function PriceEditor({
           />
           <div className="h-px bg-gray-200 my-1" />
           <AdjRow
-            label="Resale"
+            label="Resale · Fan"
             adj={resaleAdj}
             defaultPct={value}
             onChange={(v) => {
@@ -353,7 +353,7 @@ export default function PriceEditor({
           />
           <div className="h-px bg-gray-200 my-1" />
           <AdjRow
-            label="Broker"
+            label="Resale · Broker"
             adj={brokerAdj}
             defaultPct={value}
             onChange={(v) => {

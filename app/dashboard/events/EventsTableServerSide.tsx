@@ -459,8 +459,8 @@ export default async function EventsTableServerSide({ searchParams }: PageProps)
                             return (
                               <div className="flex items-center gap-1">
                                 {adjBadge('S', stdAdj)}
-                                {adjBadge('R', resAdj)}
-                                {adjBadge('B', brkAdj)}
+                                {adjBadge('RF', resAdj)}
+                                {adjBadge('RB', brkAdj)}
                               </div>
                             );
                           })()}
@@ -632,8 +632,8 @@ export default async function EventsTableServerSide({ searchParams }: PageProps)
                             return (
                               <div className="flex items-center gap-1">
                                 {adjBadge('S', stdAdj)}
-                                {adjBadge('R', resAdj)}
-                                {adjBadge('B', brkAdj)}
+                                {adjBadge('RF', resAdj)}
+                                {adjBadge('RB', brkAdj)}
                               </div>
                             );
                           })()}
