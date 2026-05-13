@@ -86,19 +86,27 @@ function buildTags(tagString?: string): any[] | undefined {
   }));
 }
 
-// Floor = 12% above total cost (minimum acceptable price)
-// Ceiling = not set (let StubHub price above our floor if market supports it)
+// Floor = cost + 12% (minimum — never sell below this)
+// Ceiling = our markup price (list_price — the max we start at)
+// Undercut = $1 below cheapest comp
 // Comps = same section, same row, same quantity only
 function buildAutoPricingSettings(cost: number, listPrice: number, quantity: number): any {
+  const floor = Math.round(cost * 1.12 * 100) / 100;
+  const ceiling = Math.round(listPrice * 100) / 100;
   return {
     autoPricingEnabled: true,
-    netProceedsFloor: Math.round(cost * 1.12 * 100) / 100,
+    netProceedsFloor: floor,
+    netProceedsCeiling: ceiling > floor ? ceiling : floor,
     compListingSettings: {
       sectionFilterMode: 'SameSection',
       rowOffset: 0,
       quantityFilters: {
         exactQuantities: [quantity],
       },
+    },
+    undercutSettings: {
+      undercutMode: 'Simple',
+      undercutAbsoluteAmount: 1.00,
     },
   };
 }
@@ -152,7 +160,10 @@ export function mapToUpdateRequest(row: CsvRow): any {
     pricingSetting: {
       pricingEnabled: true,
       netProceedsFloor: Math.round(row.cost * 1.12 * 100) / 100,
+      netProceedsCeiling: Math.round(row.list_price * 100) / 100,
       compListingMode: 'SameSection',
+      undercutMode: 'Simple',
+      undercutAbsoluteAmount: 1.00,
     },
   };
 }
