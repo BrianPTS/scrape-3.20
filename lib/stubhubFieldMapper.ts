@@ -86,12 +86,12 @@ function buildTags(tagString?: string): any[] | undefined {
   }));
 }
 
-// Floor = cost + 12% (minimum — never sell below this)
-// Ceiling = our markup price (list_price — the max we start at)
-// Undercut = $1 below cheapest comp
+// Standard: floor = cost+12%, ceiling = our markup, undercut $1
+// Resale:   floor = cost+25%, ceiling = our markup, undercut $1
 // Comps = same section, same row, same quantity only
-function buildAutoPricingSettings(cost: number, listPrice: number, quantity: number): any {
-  const floor = Math.round(cost * 1.12 * 100) / 100;
+function buildAutoPricingSettings(cost: number, listPrice: number, quantity: number, isResale: boolean): any {
+  const floorMultiplier = isResale ? 1.25 : 1.12;
+  const floor = Math.round(cost * floorMultiplier * 100) / 100;
   const ceiling = Math.round(listPrice * 100) / 100;
   return {
     autoPricingEnabled: true,
@@ -138,7 +138,7 @@ export function mapToCreateRequest(row: CsvRow, stubhubEventId: number): any {
     listingNotes: buildListingNotes(row.public_notes),
     tags: buildTags(row.tags),
     autoBroadcast: true,
-    autoPricingSettings: buildAutoPricingSettings(row.cost, row.list_price, row.quantity),
+    autoPricingSettings: buildAutoPricingSettings(row.cost, row.list_price, row.quantity, row.split_type === 'DEFAULT'),
   };
 }
 
@@ -159,7 +159,7 @@ export function mapToUpdateRequest(row: CsvRow): any {
     hideSeats: row.hide_seats === 'Y',
     pricingSetting: {
       pricingEnabled: true,
-      netProceedsFloor: Math.round(row.cost * 1.12 * 100) / 100,
+      netProceedsFloor: Math.round(row.cost * (row.split_type === 'DEFAULT' ? 1.25 : 1.12) * 100) / 100,
       netProceedsCeiling: Math.round(row.list_price * 100) / 100,
       compListingMode: 'SameSection',
       undercutMode: 'Simple',
