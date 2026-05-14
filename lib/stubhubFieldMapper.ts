@@ -86,10 +86,25 @@ function buildTags(tagString?: string): any[] | undefined {
   }));
 }
 
+// Front rows get static pricing (no auto-pricer) — these are premium and
+// shouldn't be undercut. Everything else gets auto-priced.
+function isFrontRow(row: string): boolean {
+  if (!row) return false;
+  const r = row.toUpperCase().trim();
+  return r === '1' || r === 'A' || r === 'AA' || r === 'AAA';
+}
+
 // Standard: floor = cost+12%, ceiling = our markup, undercut $1
 // Resale:   floor = cost+25%, ceiling = our markup, undercut $1
+// Front row: auto-pricing disabled — uses static list_price
 // Comps = same section, same row, same quantity only
-function buildAutoPricingSettings(cost: number, listPrice: number, quantity: number, isResale: boolean): any {
+function buildAutoPricingSettings(cost: number, listPrice: number, quantity: number, isResale: boolean, row: string): any {
+  if (isFrontRow(row)) {
+    return {
+      autoPricingEnabled: false,
+    };
+  }
+
   const floorMultiplier = isResale ? 1.25 : 1.12;
   const floor = Math.round(cost * floorMultiplier * 100) / 100;
   const ceiling = Math.round(listPrice * 100) / 100;
@@ -138,7 +153,7 @@ export function mapToCreateRequest(row: CsvRow, stubhubEventId: number): any {
     listingNotes: buildListingNotes(row.public_notes),
     tags: buildTags(row.tags),
     autoBroadcast: true,
-    autoPricingSettings: buildAutoPricingSettings(row.cost, row.list_price, row.quantity, row.split_type === 'DEFAULT'),
+    autoPricingSettings: buildAutoPricingSettings(row.cost, row.list_price, row.quantity, row.split_type === 'DEFAULT', row.row),
   };
 }
 
@@ -157,14 +172,16 @@ export function mapToUpdateRequest(row: CsvRow): any {
     splitType: mapSplitType(row.split_type),
     maxDisplayQuantity: row.shown_quantity || row.quantity,
     hideSeats: row.hide_seats === 'Y',
-    pricingSetting: {
-      pricingEnabled: true,
-      netProceedsFloor: Math.round(row.cost * (row.split_type === 'DEFAULT' ? 1.25 : 1.12) * 100) / 100,
-      netProceedsCeiling: Math.round(row.list_price * 100) / 100,
-      compListingMode: 'SameSection',
-      undercutMode: 'Simple',
-      undercutAbsoluteAmount: 1.00,
-    },
+    pricingSetting: isFrontRow(row.row)
+      ? { pricingEnabled: false }
+      : {
+          pricingEnabled: true,
+          netProceedsFloor: Math.round(row.cost * (row.split_type === 'DEFAULT' ? 1.25 : 1.12) * 100) / 100,
+          netProceedsCeiling: Math.round(row.list_price * 100) / 100,
+          compListingMode: 'SameSection',
+          undercutMode: 'Simple',
+          undercutAbsoluteAmount: 1.00,
+        },
   };
 }
 
